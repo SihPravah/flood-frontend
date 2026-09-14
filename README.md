@@ -14,12 +14,12 @@ Premium map-first PRAVAHA interface for SIH demo and development.
 ## Local Setup
 
 ```powershell
-npm install
-npm run dev
-npm run lint
-npm run typecheck
-npm run test -- --run
-npm run build
+pnpm install
+pnpm run dev
+pnpm run lint
+pnpm run typecheck
+pnpm run test -- --run
+pnpm run build
 ```
 
 ## Data Mode
@@ -31,6 +31,16 @@ backend.
 Mock data is isolated in `src/api/mockProvider.ts` and is visibly tagged as
 `SIMULATED / DEMO`.
 
+The HTTP adapter in `src/api/httpClient.ts` targets the planned PRAVAHA API:
+
+- `GET /api/v1/map/intelligence`
+- `GET /api/v1/map/catchments/:id`
+- `GET /api/v1/map/drains/:id`
+- `GET /api/v1/map/roads/:id`
+- `GET /api/v1/map/sensors/:id`
+- `GET /api/v1/map/alerts`
+- `POST /api/v1/routes/safe`
+
 ## Product Surface
 
 - map-first operational view
@@ -38,5 +48,7 @@ Mock data is isolated in `src/api/mockProvider.ts` and is visibly tagged as
   shelter and route layers
 - click-anything intelligence drawer
 - route comparison with explicit `NO_SAFE_ROUTE`
-- anticipation timeline for NOW, +30 min and +60 min
+- deterministic NORMAL, WATCH, WARNING and SEVERE demo progression
+- anticipation timeline for NOW, +15 min, +30 min and +60 min
 - confidence, provenance, freshness and reasons exposed alongside risk
+- coordinate inspection that distinguishes unavailable data from zero values

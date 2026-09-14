@@ -1,41 +1,121 @@
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  BadgeAlert,
   Bell,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
+  Compass,
+  Crosshair,
+  DatabaseZap,
+  Gauge,
   Layers3,
   LocateFixed,
-  MapPin,
+  MapPinned,
+  Mountain,
+  PanelLeftClose,
+  PanelLeftOpen,
   Route,
   Search,
-  ShieldAlert
+  ShieldAlert,
+  Waves
 } from "lucide-react";
-import {
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
 
 import { pravahaApi } from "./api/provider";
 import type {
   Alert,
   CatchmentDetail,
+  DataMetric,
   DrainDetail,
-  EntityType,
   IntelligenceDetail,
+  LandslideDetail,
+  LocationInspection,
+  MapIntelligenceResponse,
+  ProvenanceRow,
+  RainfallWindowMetric,
   RoadDetail,
+  RouteDetail,
   SafeRouteResponse,
-  SensorDetail
+  ScenarioStage,
+  SensorDetail,
+  ShelterDetail,
+  WardDetail
 } from "./api/types";
 import { MapView } from "./components/MapView";
-import { useMapStore, type LayerKey } from "./state/mapStore";
+import {
+  useMapStore,
+  type BasemapKey,
+  type LayerKey
+} from "./state/mapStore";
+
+const AnticipationChart = lazy(() =>
+  import("./components/AnticipationChart").then((module) => ({
+    default: module.AnticipationChart
+  }))
+);
+
+const scenarioStages: ScenarioStage[] = ["NORMAL", "WATCH", "WARNING", "SEVERE"];
+
+const layerGroups: Array<{
+  label: string;
+  items: Array<{ key: LayerKey; label: string; legend: string }>;
+}> = [
+  {
+    label: "Hazards",
+    items: [
+      { key: "catchments", label: "Catchment flood risk", legend: "Risk polygons" },
+      { key: "wards", label: "Ward / village impact", legend: "Admin boundary" },
+      { key: "rainfall", label: "Rainfall intensity", legend: "Blue wash" },
+      { key: "landslide", label: "Landslide susceptibility", legend: "Hatched slope" }
+    ]
+  },
+  {
+    label: "Hydrology",
+    items: [
+      { key: "rivers", label: "Rivers / streams", legend: "Stream line" },
+      { key: "drains", label: "Drainage network", legend: "Utilization" },
+      { key: "catchments", label: "Catchment boundaries", legend: "Outline" }
+    ]
+  },
+  {
+    label: "Infrastructure",
+    items: [
+      { key: "roads", label: "Roads", legend: "Road status" },
+      { key: "shelters", label: "Shelters", legend: "Shelter points" },
+      { key: "sensors", label: "Sensors", legend: "Freshness" }
+    ]
+  },
+  {
+    label: "Routing",
+    items: [
+      { key: "routes", label: "Recommended route", legend: "Route line" },
+      { key: "roads", label: "AVOID segments", legend: "Dashed orange" },
+      { key: "closures", label: "Authority closures", legend: "White-black" }
+    ]
+  }
+];
 
 export function App() {
   const scenario = useMapStore((state) => state.scenario);
   const selectedEntity = useMapStore((state) => state.selectedEntity);
+  const setLeftRailCollapsed = useMapStore((state) => state.setLeftRailCollapsed);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(max-width: 1120px)");
+    const syncRailToViewport = () => {
+      setLeftRailCollapsed(mediaQuery.matches);
+    };
+
+    syncRailToViewport();
+    mediaQuery.addEventListener("change", syncRailToViewport);
+    return () => mediaQuery.removeEventListener("change", syncRailToViewport);
+  }, [setLeftRailCollapsed]);
 
   const mapQuery = useQuery({
     queryKey: ["map-intelligence", scenario],
@@ -49,12 +129,8 @@ export function App() {
 
   const detailQuery = useQuery({
     queryKey: ["detail", selectedEntity, scenario],
-    queryFn: () => {
-      if (!selectedEntity) {
-        return Promise.resolve(null);
-      }
-      return loadDetail(selectedEntity.type, selectedEntity.id, scenario);
-    }
+    enabled: selectedEntity !== null,
+    queryFn: () => pravahaApi.getEntityDetail(selectedEntity!, scenario)
   });
 
   const routeMutation = useMutation({
@@ -78,265 +154,446 @@ export function App() {
       )
   });
 
+  const snapshot = mapQuery.data;
+  const alerts = alertsQuery.data ?? [];
+
   return (
     <main className="app-shell">
-      <TopBar />
+      <TopOperationalBar
+        snapshot={snapshot}
+        alerts={alerts}
+        loading={mapQuery.isLoading}
+      />
 
-      <section className="map-stage" aria-label="PRAVAHA map workspace">
-        {mapQuery.data ? (
-          <MapView snapshot={mapQuery.data} />
-        ) : (
-          <div className="map-skeleton" aria-label="Loading map" />
-        )}
-
-        <SituationPanel
+      <section className="command-center" aria-label="PRAVAHA GIS command center">
+        <OperationalRail
           loading={mapQuery.isLoading}
-          snapshot={mapQuery.data}
+          snapshot={snapshot}
+          alerts={alerts}
           route={routeMutation.data}
-          onPlanRoute={() => routeMutation.mutate()}
           routePending={routeMutation.isPending}
           routeError={routeMutation.error}
+          onPlanRoute={() => routeMutation.mutate()}
         />
 
-        <LayerControl />
-        <Legend />
-        <AlertCenter alerts={alertsQuery.data ?? []} />
+        <MapWorkspace
+          snapshot={snapshot}
+          loading={mapQuery.isLoading}
+          error={mapQuery.error}
+        />
+
         <IntelligenceDrawer
           detail={detailQuery.data}
           loading={detailQuery.isLoading}
           error={detailQuery.error}
+        />
+
+        <BottomIntelligenceStrip
+          snapshot={snapshot}
+          route={routeMutation.data}
+          routePending={routeMutation.isPending}
+          onPlanRoute={() => routeMutation.mutate()}
         />
       </section>
     </main>
   );
 }
 
-async function loadDetail(
-  type: EntityType,
-  id: string,
-  scenario: ReturnType<typeof useMapStore.getState>["scenario"]
-): Promise<IntelligenceDetail> {
-  if (type === "catchment") {
-    return pravahaApi.getCatchmentDetail(id, scenario);
-  }
-  if (type === "drain") {
-    return pravahaApi.getDrainDetail(id, scenario);
-  }
-  if (type === "road") {
-    return pravahaApi.getRoadDetail(id, scenario);
-  }
-  return pravahaApi.getSensorDetail(id, scenario);
-}
+function TopOperationalBar({
+  snapshot,
+  alerts,
+  loading
+}: {
+  snapshot?: MapIntelligenceResponse;
+  alerts: Alert[];
+  loading: boolean;
+}) {
+  const selectedEntity = useMapStore((state) => state.selectedEntity);
+  const healthySources =
+    snapshot?.summary.source_health.filter((source) => source.status === "GOOD")
+      .length ?? 0;
+  const sourceCount = snapshot?.summary.source_health.length ?? 0;
 
-function TopBar() {
   return (
     <header className="topbar">
       <div className="brand-lockup">
         <ShieldAlert aria-hidden="true" />
         <div>
           <span className="brand">PRAVAHA</span>
-          <span className="subtle">Dehradun flash-flood intelligence</span>
+          <span className="subtle">
+            Flash Flood Intelligence - {snapshot?.city.district ?? "Loading sector"}
+          </span>
         </div>
       </div>
-      <label className="search">
+
+      <label className="search" aria-label="Search place or asset">
         <Search aria-hidden="true" />
-        <input aria-label="Search place or asset" placeholder="Search ward, road, drain, sensor" />
+        <input placeholder="Search ward, road, drain, sensor, shelter" />
+        <kbd>GIS</kbd>
       </label>
+
+      <div className="selected-context">
+        <span className="eyebrow">Selection</span>
+        <strong>
+          {selectedEntity
+            ? `${selectedEntity.type.toUpperCase()} / ${selectedEntity.id}`
+            : "Map inspection ready"}
+        </strong>
+      </div>
+
+      <div className="top-status-grid">
+        <StatusPill
+          label="Status"
+          value={snapshot?.city.operational_status ?? (loading ? "LOADING" : "UNKNOWN")}
+          tone={snapshot?.city.operational_status ?? "INSUFFICIENT_DATA"}
+        />
+        <StatusPill
+          label="Freshness"
+          value={snapshot ? "2m" : "--"}
+          tone="GOOD"
+        />
+        <StatusPill
+          label="Sources"
+          value={snapshot ? `${healthySources}/${sourceCount}` : "--"}
+          tone={healthySources === sourceCount ? "GOOD" : "DEGRADED"}
+        />
+      </div>
+
       <div className="top-actions">
-        <span className="badge simulated">SIMULATED / DEMO</span>
-        <button className="icon-button" aria-label="Center map">
-          <LocateFixed aria-hidden="true" />
+        <span className="badge simulated">SIMULATED DEMO</span>
+        <span className="snapshot-time">
+          <Clock3 aria-hidden="true" />
+          {snapshot ? time(snapshot.generated_at) : "--:--"}
+        </span>
+        <button className="icon-button alert-button" type="button" aria-label="Alerts">
+          <Bell aria-hidden="true" />
+          <span>{alerts.length}</span>
         </button>
       </div>
     </header>
   );
 }
 
-function SituationPanel({
+function OperationalRail({
   loading,
   snapshot,
+  alerts,
   route,
-  onPlanRoute,
   routePending,
-  routeError
+  routeError,
+  onPlanRoute
 }: {
   loading: boolean;
-  snapshot?: Awaited<ReturnType<typeof pravahaApi.getMapIntelligence>>;
+  snapshot?: MapIntelligenceResponse;
+  alerts: Alert[];
   route?: SafeRouteResponse;
-  onPlanRoute: () => void;
   routePending: boolean;
   routeError: Error | null;
+  onPlanRoute: () => void;
 }) {
+  const collapsed = useMapStore((state) => state.leftRailCollapsed);
+  const toggleLeftRail = useMapStore((state) => state.toggleLeftRail);
   const scenario = useMapStore((state) => state.scenario);
   const setScenario = useMapStore((state) => state.setScenario);
-  const routeStrategy = useMapStore((state) => state.routeStrategy);
-  const setRouteStrategy = useMapStore((state) => state.setRouteStrategy);
+  const selectEntity = useMapStore((state) => state.selectEntity);
 
   return (
-    <aside className="situation-panel" aria-label="Operational status">
-      <div className="panel-heading">
-        <div>
-          <span className="eyebrow">City status</span>
-          <h1>{snapshot?.city.operational_status ?? "Loading"}</h1>
-        </div>
-        <span className={`risk-pill ${snapshot?.city.operational_status.toLowerCase()}`}>
-          {snapshot?.data_label ?? "SIMULATED"}
-        </span>
-      </div>
+    <aside
+      className={`left-rail ${collapsed ? "collapsed" : ""}`}
+      aria-label="Situational intelligence"
+    >
+      <button
+        className="rail-toggle icon-button"
+        type="button"
+        onClick={toggleLeftRail}
+        aria-label={collapsed ? "Expand situational rail" : "Collapse situational rail"}
+      >
+        {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+      </button>
 
-      <div className="scenario-control" aria-label="Demo scenario">
-        {(["NORMAL", "WATCH", "WARNING", "SEVERE"] as const).map((stage) => (
+      {!collapsed && (
+        <div className="rail-scroll">
+          <section className="rail-section overview-block">
+            <div className="section-title">
+              <Gauge aria-hidden="true" />
+              <span>Overview</span>
+            </div>
+            {loading && <div className="skeleton-block" />}
+            {snapshot && (
+              <>
+                <div className="status-card">
+                  <span className="eyebrow">Operational level</span>
+                  <strong className={`status-word ${toneClass(snapshot.city.operational_status)}`}>
+                    {snapshot.city.operational_status}
+                  </strong>
+                  <small>{percent(snapshot.city.confidence)} confidence</small>
+                </div>
+                <div className="compact-kpi-grid">
+                  <Kpi label="Worst catchment" value={snapshot.summary.highest_risk_catchment} />
+                  <Kpi label="Worst ward" value={snapshot.summary.highest_risk_ward} />
+                  <Kpi label="Active alerts" value={snapshot.summary.active_alerts} />
+                  <Kpi label="Roads AVOID" value={snapshot.summary.roads_to_avoid} />
+                  <Kpi label="Authority closures" value={snapshot.summary.confirmed_road_closures} />
+                  <Kpi label="Drains over capacity" value={snapshot.summary.overflowing_drains} />
+                  <Kpi label="Shelters available" value={display(snapshot.summary.shelters_available)} />
+                  <Kpi label="Population exposure" value={display(snapshot.summary.exposed_population)} />
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="rail-section scenario-block">
+            <div className="section-title">
+              <DatabaseZap aria-hidden="true" />
+              <span>Scenario</span>
+            </div>
+            <div className="scenario-control" aria-label="Demo scenario">
+              {scenarioStages.map((stage) => (
+                <button
+                  key={stage}
+                  className={stage === scenario ? "active" : ""}
+                  onClick={() => setScenario(stage)}
+                  type="button"
+                >
+                  {stage}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="rail-section hazard-block">
+            <div className="section-title">
+              <Waves aria-hidden="true" />
+              <span>Hazards</span>
+            </div>
+            <SignalRows
+              rows={[
+                ["Flood", snapshot?.city.operational_status ?? "Loading"],
+                ["Rainfall", snapshot ? `${snapshot.summary.latest_threshold_crossing ?? "No crossing"}` : "Loading"],
+                ["Landslide", scenario === "SEVERE" ? "HIGH" : "WATCH"],
+                ["Drainage", snapshot?.summary.overflowing_drains ? "OVERLOAD" : "MONITOR"]
+              ]}
+            />
+          </section>
+
+          <section className="rail-section route-planner">
+            <div className="section-title">
+              <Route aria-hidden="true" />
+              <span>Route planning</span>
+            </div>
+            <RoutePlanner
+              route={route}
+              routePending={routePending}
+              routeError={routeError}
+              onPlanRoute={onPlanRoute}
+            />
+          </section>
+
+          <section className="rail-section alert-list" aria-label="Alert center">
+            <div className="section-title">
+              <Bell aria-hidden="true" />
+              <span>Alert center</span>
+            </div>
+            {alerts.length === 0 ? (
+              <p className="muted">No active demo alerts.</p>
+            ) : (
+              alerts.map((alert) => (
+                <button
+                  key={alert.alert_id}
+                  className="alert-row"
+                  type="button"
+                  onClick={() =>
+                    selectEntity(
+                      entityTypeFromId(alert.affected_entity_ids[0]),
+                      alert.affected_entity_ids[0]
+                    )
+                  }
+                >
+                  <AlertTriangle aria-hidden="true" />
+                  <span>
+                    <strong>{alert.severity}</strong>
+                    <em>{alert.location}</em>
+                    <small>{alert.recommended_review}</small>
+                  </span>
+                </button>
+              ))
+            )}
+          </section>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function MapWorkspace({
+  snapshot,
+  loading,
+  error
+}: {
+  snapshot?: MapIntelligenceResponse;
+  loading: boolean;
+  error: Error | null;
+}) {
+  return (
+    <section className="map-workspace" aria-label="Interactive GIS map">
+      {snapshot ? (
+        <MapView snapshot={snapshot} />
+      ) : (
+        <div className="map-skeleton" aria-label="Loading map" />
+      )}
+      {error && <div className="map-error">{error.message}</div>}
+      <MapToolbar />
+      <LayerManager />
+      <CoordinateInspector />
+      <OperationalLegend />
+      {loading && <div className="map-loading-pill">Loading spatial intelligence</div>}
+    </section>
+  );
+}
+
+function MapToolbar() {
+  const basemap = useMapStore((state) => state.basemap);
+  const setBasemap = useMapStore((state) => state.setBasemap);
+  const basemaps: BasemapKey[] = ["muted", "contrast", "osm"];
+
+  return (
+    <div className="map-tool-zone top-left" aria-label="Map tools">
+      <button className="tool-button" type="button" aria-label="Fit study area">
+        <LocateFixed aria-hidden="true" />
+        <span>Fit</span>
+      </button>
+      <button className="tool-button active" type="button" aria-label="Inspection mode">
+        <Crosshair aria-hidden="true" />
+        <span>Inspect</span>
+      </button>
+      <div className="basemap-switch" aria-label="Basemap style">
+        {basemaps.map((item) => (
           <button
-            key={stage}
-            className={stage === scenario ? "active" : ""}
-            onClick={() => setScenario(stage)}
+            key={item}
+            className={basemap === item ? "active" : ""}
+            onClick={() => setBasemap(item)}
             type="button"
           >
-            {stage}
+            {item}
           </button>
         ))}
       </div>
-
-      <div className="metric-strip">
-        <Metric label="Catchments" value={snapshot?.summary.catchment_count ?? "-"} />
-        <Metric label="Overflow" value={snapshot?.summary.overflowing_drains ?? "-"} />
-        <Metric label="Avoid" value={snapshot?.summary.roads_to_avoid ?? "-"} />
-      </div>
-
-      <div className="freshness">
-        <Clock3 aria-hidden="true" />
-        <span>{snapshot ? new Date(snapshot.generated_at).toLocaleString() : "Waiting for snapshot"}</span>
-      </div>
-
-      {loading && <div className="skeleton-line" />}
-
-      <div className="route-planner">
-        <div className="section-title">
-          <Route aria-hidden="true" />
-          <span>Route plan</span>
-        </div>
-        <div className="strategy-row" aria-label="Route strategy">
-          {(["safest", "balanced", "fastest_available"] as const).map((strategy) => (
-            <button
-              key={strategy}
-              className={routeStrategy === strategy ? "active" : ""}
-              onClick={() => setRouteStrategy(strategy)}
-              type="button"
-            >
-              {strategy.replace(/_/g, " ")}
-            </button>
-          ))}
-        </div>
-        <button className="primary-action" onClick={onPlanRoute} type="button">
-          {routePending ? "Planning..." : "Compare routes"}
-        </button>
-        {routeError && <p className="error-text">{routeError.message}</p>}
-        {route && <RouteResult route={route} />}
-      </div>
-    </aside>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }
 
-function RouteResult({ route }: { route: SafeRouteResponse }) {
-  if (route.status === "NO_SAFE_ROUTE") {
-    return (
-      <div className="route-result no-route">
-        <strong>NO_SAFE_ROUTE</strong>
-        <span>{route.message}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="route-result">
-      <strong>{route.selected_route.label}</strong>
-      <span>
-        {route.selected_route.travel_time_minutes} min · max risk{" "}
-        {Math.round(route.selected_route.maximum_risk_score * 100)}%
-      </span>
-    </div>
-  );
-}
-
-function LayerControl() {
-  const enabledLayers = useMapStore((state) => state.enabledLayers);
+function LayerManager() {
+  const open = useMapStore((state) => state.layerManagerOpen);
+  const toggleOpen = useMapStore((state) => state.toggleLayerManager);
+  const enabled = useMapStore((state) => state.enabledLayers);
+  const opacity = useMapStore((state) => state.layerOpacity);
   const toggleLayer = useMapStore((state) => state.toggleLayer);
-  const layers: LayerKey[] = [
-    "catchments",
-    "wards",
-    "sensors",
-    "rivers",
-    "drains",
-    "roads",
-    "landslide",
-    "closures",
-    "shelters",
-    "routes"
-  ];
+  const setLayerOpacity = useMapStore((state) => state.setLayerOpacity);
 
   return (
-    <aside className="layer-control" aria-label="Map layers">
-      <div className="section-title">
+    <aside className="map-tool-zone top-right layer-manager" aria-label="Layer manager">
+      <button className="panel-tab" type="button" onClick={toggleOpen}>
         <Layers3 aria-hidden="true" />
         <span>Layers</span>
-      </div>
-      {layers.map((layer) => (
-        <label key={layer} className="toggle-row">
-          <input
-            type="checkbox"
-            checked={enabledLayers[layer]}
-            onChange={() => toggleLayer(layer)}
-          />
-          <span>{layer.replace(/_/g, " ")}</span>
-        </label>
-      ))}
+        {open ? <ChevronRight aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
+      </button>
+      {open && (
+        <div className="layer-groups">
+          {layerGroups.map((group) => (
+            <section key={group.label} className="layer-group">
+              <h3>{group.label}</h3>
+              {group.items.map((item) => (
+                <div key={`${group.label}-${item.key}-${item.label}`} className="layer-row">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={enabled[item.key]}
+                      onChange={() => toggleLayer(item.key)}
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                  <input
+                    aria-label={`${item.label} opacity`}
+                    type="range"
+                    min="0.15"
+                    max="1"
+                    step="0.05"
+                    value={opacity[item.key]}
+                    onChange={(event) =>
+                      setLayerOpacity(item.key, Number(event.currentTarget.value))
+                    }
+                  />
+                  <small>{item.legend}</small>
+                </div>
+              ))}
+              {group.label === "Infrastructure" && (
+                <div className="layer-row unavailable">
+                  <label>
+                    <input type="checkbox" disabled />
+                    <span>Bridges</span>
+                  </label>
+                  <small>Not available</small>
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      )}
     </aside>
   );
 }
 
-function Legend() {
+function CoordinateInspector() {
+  const hover = useMapStore((state) => state.hoverCoordinates);
+  const clicked = useMapStore((state) => state.clickedCoordinates);
+  const coordinates = hover ?? clicked;
+
   return (
-    <div className="legend" aria-label="Risk legend">
-      {["LOW", "WATCH", "WARNING", "HIGH", "SEVERE"].map((level) => (
-        <span key={level}>
-          <i className={`swatch ${level.toLowerCase()}`} />
-          {level}
-        </span>
-      ))}
+    <div className="map-tool-zone bottom-left coordinate-readout" aria-label="Coordinate readout">
+      <Compass aria-hidden="true" />
+      <div>
+        <span>WGS84 / EPSG:4326</span>
+        <strong>
+          {coordinates
+            ? `${coordinates[1].toFixed(5)}, ${coordinates[0].toFixed(5)}`
+            : "Move cursor over map"}
+        </strong>
+      </div>
     </div>
   );
 }
 
-function AlertCenter({ alerts }: { alerts: Alert[] }) {
+function OperationalLegend() {
+  const open = useMapStore((state) => state.legendOpen);
+  const toggleOpen = useMapStore((state) => state.toggleLegend);
+
   return (
-    <section className="alert-center" aria-label="Alerts">
-      <div className="section-title">
-        <Bell aria-hidden="true" />
-        <span>Alerts</span>
-      </div>
-      {alerts.length === 0 ? (
-        <p className="muted">No active demo alerts.</p>
-      ) : (
-        alerts.map((alert) => (
-          <article key={alert.alert_id} className="alert-item">
-            <AlertTriangle aria-hidden="true" />
-            <div>
-              <strong>{alert.risk_level}</strong>
-              <span>{alert.message}</span>
-            </div>
-          </article>
-        ))
+    <aside className="map-tool-zone bottom-right legend-panel" aria-label="Operational legend">
+      <button className="panel-tab" type="button" onClick={toggleOpen}>
+        <BadgeAlert aria-hidden="true" />
+        <span>Legend</span>
+      </button>
+      {open && (
+        <div className="legend-grid">
+          <LegendGroup
+            title="Flood risk"
+            items={["LOW", "WATCH", "WARNING", "HIGH", "SEVERE"]}
+          />
+          <LegendGroup
+            title="Road status"
+            items={["PASSABLE", "CAUTION", "AVOID", "CLOSED"]}
+          />
+          <LegendGroup
+            title="Drain utilization"
+            items={["0-50%", "50-75%", "75-90%", "overflow"]}
+          />
+          <LegendGroup
+            title="Provenance"
+            items={["OBSERVED", "DERIVED", "ESTIMATED", "SIMULATED", "MISSING"]}
+          />
+        </div>
       )}
-    </section>
+    </aside>
   );
 }
 
@@ -345,112 +602,241 @@ function IntelligenceDrawer({
   loading,
   error
 }: {
-  detail: IntelligenceDetail | null | undefined;
+  detail: IntelligenceDetail | undefined;
   loading: boolean;
   error: Error | null;
 }) {
+  const selected = useMapStore((state) => state.selectedEntity);
   const clearSelection = useMapStore((state) => state.clearSelection);
+  const visibleDetail =
+    detail && selected && detailMatchesSelection(detail, selected.type, selected.id)
+      ? detail
+      : undefined;
+  const waitingForDetail = loading || Boolean(selected && detail && !visibleDetail);
 
   return (
-    <aside className="drawer" aria-label="Selected intelligence">
-      <div className="drawer-header">
+    <aside className="inspector" aria-label="Selected intelligence drawer">
+      <div className="inspector-header">
         <div>
-          <span className="eyebrow">Intelligence</span>
-          <h2>{detail ? detailTitle(detail) : "Select a map object"}</h2>
+          <span className="eyebrow">Inspection</span>
+          <h2>{visibleDetail ? detailTitle(visibleDetail) : selected ? selected.id : "Select map object"}</h2>
         </div>
-        <button className="icon-button" onClick={clearSelection} aria-label="Close detail drawer">
-          ×
+        <button className="icon-button" onClick={clearSelection} aria-label="Close detail drawer" type="button">
+          <ChevronRight aria-hidden="true" />
         </button>
       </div>
-      {loading && <div className="drawer-skeleton" />}
+      {waitingForDetail && <div className="drawer-skeleton" />}
       {error && <p className="error-text">{error.message}</p>}
-      {detail && <DetailContent detail={detail} />}
+      {!waitingForDetail && !visibleDetail && (
+        <div className="empty-inspector">
+          <MapPinned aria-hidden="true" />
+          <strong>Click any mapped asset or open coordinate inspection.</strong>
+          <span>Catchments, wards, drains, roads, sensors, shelters, routes and empty locations are inspectable.</span>
+        </div>
+      )}
+      {visibleDetail && <DetailContent detail={visibleDetail} />}
     </aside>
   );
 }
 
+function detailMatchesSelection(detail: IntelligenceDetail, type: string, id: string) {
+  if (detail.type !== type) {
+    return false;
+  }
+  if (detail.type === "catchment") return detail.catchment_id === id;
+  if (detail.type === "drain") return detail.drain_id === id;
+  if (detail.type === "road") return detail.road_id === id;
+  if (detail.type === "sensor") return detail.device_id === id;
+  if (detail.type === "ward") return detail.ward_id === id;
+  if (detail.type === "landslide") return detail.zone_id === id;
+  if (detail.type === "route") return detail.route_id === id;
+  if (detail.type === "shelter") return detail.shelter_id === id;
+  return true;
+}
+
 function DetailContent({ detail }: { detail: IntelligenceDetail }) {
-  if ("measurements" in detail) {
+  if (detail.type === "catchment") {
+    return <CatchmentContent detail={detail} />;
+  }
+  if (detail.type === "drain") {
+    return <DrainContent detail={detail} />;
+  }
+  if (detail.type === "road") {
+    return <RoadContent detail={detail} />;
+  }
+  if (detail.type === "sensor") {
     return <SensorContent detail={detail} />;
   }
-
-  return (
-    <div className="detail-stack">
-      <div className="score-row">
-        <span className={`risk-dot ${detail.risk_level.toLowerCase()}`} />
-        <strong>{detail.risk_level}</strong>
-        <span>{Math.round(detail.risk_score * 100)}% risk</span>
-        <span>{Math.round(detail.confidence * 100)}% confidence</span>
-      </div>
-      <span className="badge simulated">{detail.provenance.data_label}</span>
-      <ReasonList reasons={detail.reasons} />
-      {"hydrology" in detail && <CatchmentContent detail={detail} />}
-      {"capacity_utilization" in detail && <DrainContent detail={detail} />}
-      {"recommendation" in detail && <RoadContent detail={detail} />}
-    </div>
-  );
+  if (detail.type === "ward") {
+    return <WardContent detail={detail} />;
+  }
+  if (detail.type === "landslide") {
+    return <LandslideContent detail={detail} />;
+  }
+  if (detail.type === "route") {
+    return <RouteContent detail={detail} />;
+  }
+  if (detail.type === "shelter") {
+    return <ShelterContent detail={detail} />;
+  }
+  return <LocationContent detail={detail} />;
 }
 
 function CatchmentContent({ detail }: { detail: CatchmentDetail }) {
   return (
-    <>
-      <div className="two-column">
-        <Metric label="Rain 1h" value={`${detail.rainfall.rain_1h} mm`} />
-        <Metric label="Soil" value={`${Math.round(detail.soil.saturation * 100)}%`} />
-        <Metric label="Runoff" value={`${detail.hydrology.runoff_mm} mm`} />
-        <Metric label="Tc" value={`${detail.hydrology.concentration_time_minutes} min`} />
-      </div>
-      <div className="timeline">
-        {detail.anticipation.timeline.map((point) => (
-          <span key={point.label}>
-            {point.label}
-            <b>{point.risk_level}</b>
-          </span>
-        ))}
-      </div>
-      <div className="timeline-chart" aria-label="Anticipatory risk timeline">
-        <ResponsiveContainer width="100%" height={110}>
-          <LineChart data={detail.anticipation.timeline}>
-            <XAxis dataKey="label" tickLine={false} axisLine={false} />
-            <YAxis hide domain={[0, 1]} />
-            <Tooltip
-              formatter={(value: number) => `${Math.round(value * 100)}%`}
-              labelFormatter={(label) => String(label)}
-            />
-            <Line
-              type="monotone"
-              dataKey="risk_score"
-              stroke="#145c52"
-              strokeWidth={3}
-              dot={{ r: 4, fill: "#f18d38", strokeWidth: 0 }}
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </>
+    <div className="detail-stack">
+      <RiskSummary detail={detail} subtitle={`${detail.fused_state} / ${detail.ward_name}`} />
+
+      <DetailSection title="Current Rainfall">
+        <div className="rainfall-grid">
+          {detail.rainfall_windows.map((window) => (
+            <RainfallWindow key={window.label} window={window} />
+          ))}
+        </div>
+      </DetailSection>
+
+      <DetailSection title="Soil / Terrain">
+        <MetricGrid
+          metrics={[
+            metric("Soil saturation", percentValue(detail.soil.saturation), undefined, detail.soil.status, detail.soil.confidence),
+            metric("Elevation", detail.terrain.elevation_m, "m", "ESTIMATED"),
+            metric("Mean slope", detail.terrain.mean_slope_fraction, "fraction", "ESTIMATED"),
+            metric("Area", detail.terrain.catchment_area_km2, "km2", "ESTIMATED"),
+            metric("Curve number", detail.terrain.curve_number, undefined, "ESTIMATED"),
+            metric("HAND", detail.terrain.hand_m, "m", "MISSING"),
+            metric("TWI", detail.terrain.twi, undefined, "MISSING")
+          ]}
+        />
+      </DetailSection>
+
+      <DetailSection title="Hydrology">
+        <MetricGrid
+          metrics={[
+            metric("Runoff", detail.hydrology.runoff_mm, "mm", "DERIVED"),
+            metric("Discharge", detail.hydrology.discharge_m3_per_s, "m3/s", "DERIVED"),
+            metric("Runoff coefficient", detail.hydrology.runoff_coefficient, undefined, "DERIVED"),
+            metric("Concentration time", detail.hydrology.concentration_time_minutes, "min", "DERIVED"),
+            metric("Response", detail.hydrology.response, undefined, detail.risk_level),
+            metric("Drainage demand", detail.hydrology.drainage_demand, undefined, detail.risk_level)
+          ]}
+        />
+      </DetailSection>
+
+      <DetailSection title={`Why ${detail.risk_level}?`}>
+        <ReasonList reasons={detail.reasons} />
+      </DetailSection>
+
+      <DetailSection title="Anticipation">
+        <TimelineRows timeline={detail.anticipation.timeline} />
+        <Suspense fallback={<div className="chart-skeleton" />}>
+          <AnticipationChart timeline={detail.anticipation.timeline} />
+        </Suspense>
+        <div className="threshold-note">
+          {detail.anticipation.threshold_window
+            ? `${detail.anticipation.threshold_window.risk_level} threshold estimated ${detail.anticipation.threshold_window.earliest_minutes}-${detail.anticipation.threshold_window.latest_minutes} min`
+            : "No threshold crossing in demo horizon"}
+        </div>
+      </DetailSection>
+
+      <DetailSection title="Cascade">
+        <div className="cascade-chain">
+          {detail.cascade.map((step) => (
+            <div key={step.label} className={`cascade-step ${step.state.toLowerCase()}`}>
+              <strong>{step.label}</strong>
+              <span>{step.state}</span>
+              <small>{step.detail}</small>
+            </div>
+          ))}
+        </div>
+      </DetailSection>
+
+      <DetailSection title="Impact">
+        <MetricGrid
+          metrics={[
+            metric("Affected wards", detail.impact.affected_wards.join(", "), undefined, "SIMULATED"),
+            metric("Exposed roads", detail.impact.exposed_roads.join(", "), undefined, "SIMULATED"),
+            metric("Threatened shelters", listOrNone(detail.impact.threatened_shelters), undefined, "SIMULATED"),
+            metric("Population", detail.impact.exposed_population, undefined, "MISSING"),
+            metric("Evacuation readiness", detail.impact.evacuation_readiness, undefined, detail.risk_level)
+          ]}
+        />
+      </DetailSection>
+
+      <ProvenanceTable rows={detail.provenance_table} />
+    </div>
   );
 }
 
 function DrainContent({ detail }: { detail: DrainDetail }) {
   return (
-    <div className="two-column">
-      <Metric label="Inflow" value={`${detail.inflow_m3_per_s} m3/s`} />
-      <Metric label="Capacity" value={`${detail.capacity_m3_per_s} m3/s`} />
-      <Metric label="Utilization" value={`${Math.round(detail.capacity_utilization * 100)}%`} />
-      <Metric label="Overflow" value={`${detail.overflow_m3_per_s} m3/s`} />
+    <div className="detail-stack">
+      <RiskSummary detail={detail} subtitle={`${detail.drain_type} / ${detail.name}`} />
+      <DetailSection title="Hydraulics">
+        <MetricGrid
+          metrics={[
+            metric("Estimated inflow", detail.inflow_m3_per_s, "m3/s", "DERIVED"),
+            metric("Design capacity", detail.capacity_m3_per_s, "m3/s", "ESTIMATED"),
+            metric("Current utilization", percentValue(detail.capacity_utilization), undefined, detail.risk_level),
+            metric("Predicted +30", percentValue(detail.predicted_utilization_30m), undefined, detail.risk_level),
+            metric("Overflow", detail.overflow_m3_per_s, "m3/s", detail.overflow_m3_per_s ? "HIGH" : "LOW"),
+            metric("Overflow margin", detail.overflow_margin_m3_per_s, "m3/s", "ESTIMATED")
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Condition / Impact">
+        <MetricGrid
+          metrics={[
+            metric("Condition", detail.condition, undefined, "ESTIMATED"),
+            metric("Condition factor", detail.condition_factor, undefined, "ESTIMATED"),
+            metric("Affected roads", detail.affected_roads.join(", "), undefined, "SIMULATED"),
+            metric("Contributing catchments", detail.contributing_catchments.join(", "), undefined, "SIMULATED"),
+            metric("Nearby settlements", detail.nearby_settlements.join(", "), undefined, "SIMULATED")
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Trend">
+        <TimelineRows timeline={detail.timeline} />
+      </DetailSection>
+      <DetailSection title="Reasons">
+        <ReasonList reasons={detail.reasons} />
+      </DetailSection>
+      <ProvenanceTable rows={detail.provenance_table} />
     </div>
   );
 }
 
 function RoadContent({ detail }: { detail: RoadDetail }) {
   return (
-    <div className="detail-callout">
-      <MapPin aria-hidden="true" />
-      <span>
-        {detail.recommendation}
-        {detail.authority_closed ? " · authority closure" : " · model guidance"}
-      </span>
+    <div className="detail-stack">
+      <RiskSummary
+        detail={detail}
+        subtitle={`${detail.name} / ${detail.road_class}`}
+        status={detail.recommendation}
+      />
+      <div className={`authority-banner ${detail.authority_closed ? "closed" : "model"}`}>
+        {detail.authority_closed ? "AUTHORITY CONFIRMED CLOSURE" : "MODEL RECOMMENDATION"}
+      </div>
+      <DetailSection title="Road">
+        <MetricGrid
+          metrics={[
+            metric("Segment length", detail.segment_length_km, "km", "ESTIMATED"),
+            metric("Jurisdiction", detail.jurisdiction, undefined, "ESTIMATED"),
+            metric("Associated drain", detail.associated_drain_id ?? null, undefined, "ESTIMATED")
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Contributors">
+        <MetricGrid metrics={detail.contributors} />
+      </DetailSection>
+      <DetailSection title="Related Infrastructure">
+        <MetricGrid metrics={detail.related_infrastructure} />
+      </DetailSection>
+      <DetailSection title="Anticipation / Routing Effect">
+        <MetricGrid metrics={[...detail.anticipation, ...detail.routing_effect]} />
+      </DetailSection>
+      <DetailSection title="Reasons">
+        <ReasonList reasons={detail.reasons} />
+      </DetailSection>
     </div>
   );
 }
@@ -458,14 +844,476 @@ function RoadContent({ detail }: { detail: RoadDetail }) {
 function SensorContent({ detail }: { detail: SensorDetail }) {
   return (
     <div className="detail-stack">
-      <span className="badge simulated">{detail.provenance.data_label}</span>
-      <div className="two-column">
-        {Object.entries(detail.measurements).map(([name, value]) => (
-          <Metric key={name} label={name.replace(/_/g, " ")} value={value} />
-        ))}
-        <Metric label="Age" value={`${detail.age_minutes} min`} />
-        <Metric label="Freshness" value={detail.freshness} />
+      <div className="sensor-title-row">
+        <span className={`badge ${toneClass(detail.freshness)}`}>{detail.freshness}</span>
+        <span className="badge simulated">{detail.status}</span>
       </div>
+      <DetailSection title="Sensor">
+        <MetricGrid
+          metrics={[
+            metric("Device", detail.device_id, undefined, detail.status),
+            metric("Type", detail.sensor_type, undefined, detail.status),
+            metric("Latitude", detail.latitude, undefined, detail.status),
+            metric("Longitude", detail.longitude, undefined, detail.status),
+            metric("Age", detail.age_minutes, "min", detail.freshness),
+            metric("Source", detail.source, undefined, detail.status)
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Measurements">
+        <MetricGrid
+          metrics={Object.entries(detail.measurements).map(([label, value]) =>
+            metric(titleize(label), value, unitFor(label), value === null ? "MISSING" : detail.status)
+          )}
+        />
+      </DetailSection>
+      <DetailSection title="History">
+        <div className="mini-bars">
+          {detail.history.map((item) => (
+            <div key={item.label}>
+              <span>{item.label}</span>
+              <i style={{ height: `${Math.max(item.rainfall_mm_per_hr ?? 0, 4)}px` }} />
+              <small>{display(item.rainfall_mm_per_hr)} mm/hr</small>
+            </div>
+          ))}
+        </div>
+        {detail.missing_fields.length > 0 && (
+          <p className="data-note">Missing: {detail.missing_fields.join(", ")}</p>
+        )}
+      </DetailSection>
+    </div>
+  );
+}
+
+function WardContent({ detail }: { detail: WardDetail }) {
+  return (
+    <div className="detail-stack">
+      <RiskSummary detail={detail} subtitle={`${detail.admin_level} / ${detail.name}`} />
+      <DetailSection title="Ward / Village">
+        <MetricGrid
+          metrics={[
+            metric("Population", detail.population, undefined, "MISSING"),
+            metric("Catchments", detail.catchments_intersecting.join(", "), undefined, "SIMULATED"),
+            metric("Roads threatened", detail.roads_threatened.join(", "), undefined, detail.risk_level),
+            metric("Shelters", detail.shelters.join(", "), undefined, "SIMULATED"),
+            metric("Evacuation readiness", detail.evacuation_readiness, undefined, detail.risk_level),
+            metric("Isolation risk", detail.isolation_risk, undefined, detail.risk_level),
+            metric("Deterioration", detail.predicted_deterioration, undefined, "SIMULATED")
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Major Hazards">
+        <ReasonList reasons={detail.major_hazards} />
+      </DetailSection>
+    </div>
+  );
+}
+
+function LandslideContent({ detail }: { detail: LandslideDetail }) {
+  return (
+    <div className="detail-stack">
+      <RiskSummary detail={detail} subtitle={detail.name} />
+      <DetailSection title="Landslide Intelligence">
+        <MetricGrid
+          metrics={[
+            metric("Susceptibility", percentValue(detail.susceptibility_score), undefined, detail.risk_level),
+            metric("Slope", detail.slope_fraction, "fraction", "ESTIMATED"),
+            metric("Soil contribution", detail.soil_saturation_contribution, undefined, "SIMULATED"),
+            metric("Rainfall contribution", detail.rainfall_contribution, undefined, "SIMULATED"),
+            metric("Historical inventory", detail.historical_inventory, undefined, "ESTIMATED"),
+            metric("Affected assets", detail.affected_assets.join(", "), undefined, detail.risk_level)
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Cascade Impact">
+        <ReasonList reasons={detail.cascade_impact} />
+      </DetailSection>
+    </div>
+  );
+}
+
+function RouteContent({ detail }: { detail: RouteDetail }) {
+  return (
+    <div className="detail-stack">
+      <DetailSection title="Route Intelligence">
+        <div className="route-card selected">
+          <strong>{detail.label}</strong>
+          <span>
+            {detail.travel_time_minutes} min / {detail.distance_km} km / +{detail.additional_time_vs_fastest_minutes} min
+          </span>
+          <small>Max risk {percent(detail.maximum_risk_score)} / min confidence {percent(detail.minimum_confidence)}</small>
+        </div>
+        <MetricGrid
+          metrics={[
+            metric("Strategy", detail.strategy, undefined, "SIMULATED"),
+            metric("Landslide exposure", detail.landslide_exposure, undefined, detail.landslide_exposure),
+            metric("High-risk segments", detail.high_risk_segments, undefined, detail.landslide_exposure),
+            metric("AVOID bypassed", detail.unsafe_segments_avoided, undefined, "SIMULATED"),
+            metric("Closures bypassed", detail.closures_avoided, undefined, "SIMULATED"),
+            metric("Crossings", detail.crossings, undefined, "ESTIMATED")
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Explanation">
+        <ReasonList reasons={detail.explanation} />
+      </DetailSection>
+    </div>
+  );
+}
+
+function ShelterContent({ detail }: { detail: ShelterDetail }) {
+  return (
+    <div className="detail-stack">
+      <DetailSection title="Shelter">
+        <MetricGrid
+          metrics={[
+            metric("Shelter", detail.name, undefined, detail.provenance.data_label),
+            metric("Status", detail.status, undefined, detail.status),
+            metric("Capacity", detail.capacity_people, undefined, "MISSING"),
+            metric("Occupancy", detail.current_occupancy, undefined, "MISSING"),
+            metric("Nearest route", detail.nearest_safe_route, undefined, detail.nearest_safe_route ? "SIMULATED" : "MISSING")
+          ]}
+        />
+      </DetailSection>
+    </div>
+  );
+}
+
+function LocationContent({ detail }: { detail: LocationInspection }) {
+  return (
+    <div className="detail-stack">
+      <div className="location-head">
+        <Crosshair aria-hidden="true" />
+        <div>
+          <strong>{detail.latitude.toFixed(5)}, {detail.longitude.toFixed(5)}</strong>
+          <span>Generic map-pixel inspection</span>
+        </div>
+      </div>
+      <DetailSection title="Location">
+        <MetricGrid
+          metrics={[
+            metric("Jurisdiction", detail.jurisdiction, undefined, "SIMULATED"),
+            metric("Ward / village", detail.ward_or_village, undefined, "SIMULATED"),
+            metric("Catchment", detail.catchment_id, undefined, "SIMULATED"),
+            metric("Nearest road", detail.nearest_road, undefined, "ESTIMATED"),
+            metric("Nearest stream", detail.nearest_stream, undefined, "ESTIMATED"),
+            metric("Nearest drain", detail.nearest_drain, undefined, "ESTIMATED"),
+            metric("Nearest shelter", detail.nearest_shelter, undefined, "SIMULATED")
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Terrain">
+        <MetricGrid metrics={detail.terrain} />
+      </DetailSection>
+      <DetailSection title="Hydrology">
+        <MetricGrid metrics={detail.hydrology} />
+      </DetailSection>
+      <DetailSection title="Hazard Context">
+        <MetricGrid metrics={detail.hazard_context} />
+      </DetailSection>
+      <DetailSection title="Data Quality">
+        <MetricGrid metrics={detail.data_quality} />
+      </DetailSection>
+    </div>
+  );
+}
+
+function BottomIntelligenceStrip({
+  snapshot,
+  route,
+  routePending,
+  onPlanRoute
+}: {
+  snapshot?: MapIntelligenceResponse;
+  route?: SafeRouteResponse;
+  routePending: boolean;
+  onPlanRoute: () => void;
+}) {
+  const scenario = useMapStore((state) => state.scenario);
+  const routeStrategy = useMapStore((state) => state.routeStrategy);
+  const setRouteStrategy = useMapStore((state) => state.setRouteStrategy);
+
+  return (
+    <footer className="bottom-strip" aria-label="Anticipatory and route intelligence">
+      <section className="timeline-strip">
+        <div className="strip-heading">
+          <Mountain aria-hidden="true" />
+          <span>Anticipatory timeline</span>
+          <em>{scenario}</em>
+        </div>
+        <div className="timeline-cells">
+          {snapshot?.city.reasons.map((reason) => (
+            <span key={reason}>{titleize(reason)}</span>
+          ))}
+        </div>
+      </section>
+
+      <section className="route-strip">
+        <div className="strategy-row" aria-label="Route strategy">
+          {(["safest", "balanced", "fastest_available"] as const).map((strategy) => (
+            <button
+              key={strategy}
+              className={routeStrategy === strategy ? "active" : ""}
+              onClick={() => setRouteStrategy(strategy)}
+              type="button"
+            >
+              {titleize(strategy)}
+            </button>
+          ))}
+        </div>
+        <button className="primary-action" onClick={onPlanRoute} type="button">
+          {routePending ? "Evaluating" : "Plan route"}
+        </button>
+        <RouteResult route={route} />
+      </section>
+    </footer>
+  );
+}
+
+function RoutePlanner({
+  route,
+  routePending,
+  routeError,
+  onPlanRoute
+}: {
+  route?: SafeRouteResponse;
+  routePending: boolean;
+  routeError: Error | null;
+  onPlanRoute: () => void;
+}) {
+  const routeStrategy = useMapStore((state) => state.routeStrategy);
+  const setRouteStrategy = useMapStore((state) => state.setRouteStrategy);
+
+  return (
+    <div className="route-planner-body">
+      <div className="route-fields">
+        <span>FROM <strong>Clock Tower side</strong></span>
+        <span>TO <strong>School shelter</strong></span>
+      </div>
+      <div className="strategy-row" aria-label="Route strategy">
+        {(["safest", "balanced", "fastest_available"] as const).map((strategy) => (
+          <button
+            key={strategy}
+            className={routeStrategy === strategy ? "active" : ""}
+            onClick={() => setRouteStrategy(strategy)}
+            type="button"
+          >
+            {titleize(strategy)}
+          </button>
+        ))}
+      </div>
+      <button className="primary-action" onClick={onPlanRoute} type="button">
+        {routePending ? "Evaluating corridors" : "Compare routes"}
+      </button>
+      {routeError && <p className="error-text">{routeError.message}</p>}
+      <RouteResult route={route} />
+    </div>
+  );
+}
+
+function RouteResult({ route }: { route?: SafeRouteResponse }) {
+  if (!route) {
+    return <p className="muted">No route evaluation yet.</p>;
+  }
+
+  if (route.status === "NO_SAFE_ROUTE") {
+    return (
+      <div className="no-route-state">
+        <strong>NO RELIABLE ROUTE AVAILABLE</strong>
+        <span>{route.message}</span>
+        <ul>
+          {route.blocked_by.map((segment) => (
+            <li key={segment.road_id}>
+              {segment.road_id} / {segment.recommendation} / {segment.risk_level}
+            </li>
+          ))}
+        </ul>
+        <small>{route.safety_note}</small>
+      </div>
+    );
+  }
+
+  return (
+    <div className="route-card selected">
+      <strong>{route.selected_route.label}</strong>
+      <span>
+        {route.selected_route.travel_time_minutes} min / {route.selected_route.distance_km} km
+      </span>
+      <small>
+        Max risk {percent(route.selected_route.maximum_risk_score)} / min confidence {percent(route.selected_route.minimum_confidence)}
+      </small>
+      <em>{route.safety_note}</em>
+    </div>
+  );
+}
+
+function RainfallWindow({ window }: { window: RainfallWindowMetric }) {
+  return (
+    <div className={`rain-window ${toneClass(window.quality)}`}>
+      <strong>{window.label}</strong>
+      <span>{display(window.value_mm)} mm</span>
+      <small>{window.status} / {window.quality}</small>
+      <em>
+        cov {percent(window.coverage_fraction)} / n {window.observation_count} / gap {display(window.largest_gap_minutes)}m
+      </em>
+    </div>
+  );
+}
+
+function RiskSummary({
+  detail,
+  subtitle,
+  status
+}: {
+  detail: Extract<IntelligenceDetail, { risk_score: number }>;
+  subtitle: string;
+  status?: string;
+}) {
+  return (
+    <div className="risk-summary">
+      <div>
+        <span className="eyebrow">{subtitle}</span>
+        <h3>{status ?? detail.risk_level}</h3>
+      </div>
+      <div className="risk-meters">
+        <Meter label="Risk" value={detail.risk_score} tone={detail.risk_level} />
+        <Meter label="Confidence" value={detail.confidence} tone={detail.confidence >= 0.75 ? "GOOD" : "DEGRADED"} />
+      </div>
+      <span className="badge simulated">{detail.provenance.data_label}</span>
+    </div>
+  );
+}
+
+function DetailSection({
+  title,
+  children
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="detail-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function MetricGrid({ metrics }: { metrics: DataMetric[] }) {
+  return (
+    <div className="metric-grid">
+      {metrics.map((item) => (
+        <div key={`${item.label}-${String(item.value)}`} className="metric-row">
+          <span>{item.label}</span>
+          <strong>{formatMetric(item)}</strong>
+          {item.status && <em className={toneClass(String(item.status))}>{item.status}</em>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TimelineRows({ timeline }: { timeline: CatchmentDetail["anticipation"]["timeline"] }) {
+  return (
+    <div className="timeline-rows">
+      {timeline.map((point) => (
+        <div key={point.label} className={`timeline-row ${toneClass(point.risk_level)}`}>
+          <strong>{point.label}</strong>
+          <span>{point.risk_level}</span>
+          <em>{point.drainage_status}</em>
+          <small>{point.road_status} / {point.note}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProvenanceTable({ rows }: { rows: ProvenanceRow[] }) {
+  return (
+    <DetailSection title="Data Provenance">
+      <div className="provenance-table">
+        <div className="provenance-head">
+          <span>Variable</span>
+          <span>Source</span>
+          <span>Status</span>
+          <span>Age</span>
+          <span>Conf.</span>
+        </div>
+        {rows.map((row) => (
+          <div key={row.variable} className="provenance-row">
+            <span>{row.variable}</span>
+            <span>{row.source}</span>
+            <span className={toneClass(row.status)}>{row.status}</span>
+            <span>{row.age_minutes === null ? "Not available" : `${row.age_minutes}m`}</span>
+            <span>{row.confidence === null ? "Not available" : percent(row.confidence)}</span>
+          </div>
+        ))}
+      </div>
+    </DetailSection>
+  );
+}
+
+function LegendGroup({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="legend-group">
+      <strong>{title}</strong>
+      {items.map((item) => (
+        <span key={item}>
+          <i className={`legend-swatch ${toneClass(item)}`} />
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function Kpi({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="kpi">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function SignalRows({ rows }: { rows: Array<[string, string | number]> }) {
+  return (
+    <div className="signal-rows">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusPill({
+  label,
+  value,
+  tone
+}: {
+  label: string;
+  value: string;
+  tone: string;
+}) {
+  return (
+    <span className={`status-pill ${toneClass(tone)}`}>
+      <em>{label}</em>
+      <strong>{value}</strong>
+    </span>
+  );
+}
+
+function Meter({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="meter">
+      <span>{label}</span>
+      <strong>{percent(value)}</strong>
+      <i>
+        <b className={toneClass(tone)} style={{ width: percent(value) }} />
+      </i>
     </div>
   );
 }
@@ -474,21 +1322,127 @@ function ReasonList({ reasons }: { reasons: string[] }) {
   return (
     <ul className="reason-list">
       {reasons.map((reason) => (
-        <li key={reason}>{reason.replace(/_/g, " ")}</li>
+        <li key={reason}>{titleize(reason)}</li>
       ))}
     </ul>
   );
 }
 
+function metric(
+  label: string,
+  value: DataMetric["value"],
+  unit?: string,
+  status?: DataMetric["status"],
+  confidence?: number | null
+): DataMetric {
+  return {
+    label,
+    value,
+    unit,
+    status,
+    confidence
+  };
+}
+
 function detailTitle(detail: IntelligenceDetail) {
-  if ("catchment_id" in detail) {
-    return detail.catchment_id;
+  if (detail.type === "catchment") {
+    return detail.name;
   }
-  if ("drain_id" in detail) {
-    return detail.drain_id;
+  if (detail.type === "drain") {
+    return detail.name;
   }
-  if ("road_id" in detail) {
-    return detail.road_id;
+  if (detail.type === "road") {
+    return detail.name;
   }
-  return detail.device_id;
+  if (detail.type === "sensor") {
+    return detail.device_id;
+  }
+  if (detail.type === "ward") {
+    return detail.name;
+  }
+  if (detail.type === "landslide") {
+    return detail.name;
+  }
+  if (detail.type === "route") {
+    return detail.label;
+  }
+  if (detail.type === "shelter") {
+    return detail.name;
+  }
+  return "Coordinate inspection";
+}
+
+function entityTypeFromId(id: string) {
+  if (id.startsWith("UK-CHM")) {
+    return "catchment" as const;
+  }
+  if (id.startsWith("DRAIN")) {
+    return "drain" as const;
+  }
+  if (id.startsWith("ROAD")) {
+    return "road" as const;
+  }
+  if (id.startsWith("WARD")) {
+    return "ward" as const;
+  }
+  return "catchment" as const;
+}
+
+function unitFor(label: string) {
+  if (label.includes("rainfall")) {
+    return "mm/hr";
+  }
+  if (label.includes("soil")) {
+    return "%";
+  }
+  if (label.includes("tilt")) {
+    return "deg";
+  }
+  return undefined;
+}
+
+function formatMetric(item: DataMetric) {
+  if (item.value === null || item.value === undefined) {
+    return "Not available";
+  }
+  const value =
+    typeof item.value === "number" ? Number(item.value.toFixed(2)) : item.value;
+  return item.unit ? `${value} ${item.unit}` : String(value);
+}
+
+function display(value: string | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "Not available";
+  }
+  return value;
+}
+
+function listOrNone(values: string[]) {
+  return values.length > 0 ? values.join(", ") : "None in demo horizon";
+}
+
+function percent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function percentValue(value: number | null | undefined) {
+  return value === null || value === undefined ? null : Math.round(value * 100);
+}
+
+function time(value: string) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function titleize(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function toneClass(value: string) {
+  return value.toLowerCase().replaceAll(" ", "-").replaceAll("/", "-");
 }

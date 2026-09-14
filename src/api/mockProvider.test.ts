@@ -9,6 +9,9 @@ describe("mockProvider", () => {
 
     expect(first).toEqual(second);
     expect(first.data_label).toBe("SIMULATED");
+    expect(first.summary.source_health.some((source) => source.provenance === "SIMULATED")).toBe(
+      true
+    );
   });
 
   it("shows deterioration across the demo scenario", async () => {
@@ -26,6 +29,7 @@ describe("mockProvider", () => {
     expect(severe.rainfall.rain_1h).toBeGreaterThan(
       normal.rainfall.rain_1h
     );
+    expect(severe.anticipation.timeline.at(-1)?.city_status).toBe("EMERGENCY");
   });
 
   it("returns explicit NO_SAFE_ROUTE for blocked demo routing", async () => {
@@ -46,6 +50,42 @@ describe("mockProvider", () => {
       expect(result.blocked_by.map((segment) => segment.recommendation)).toContain(
         "CLOSED"
       );
+    }
+  });
+
+  it("supports richer click-anything entity details", async () => {
+    const ward = await mockProvider.getEntityDetail(
+      { type: "ward", id: "WARD-07" },
+      "WARNING"
+    );
+    const landslide = await mockProvider.getEntityDetail(
+      { type: "landslide", id: "SLOPE-01" },
+      "SEVERE"
+    );
+    const location = await mockProvider.getEntityDetail(
+      { type: "location", id: "clicked-location", coordinates: [78.042, 30.331] },
+      "WARNING"
+    );
+
+    expect(ward.type).toBe("ward");
+    expect(landslide.type).toBe("landslide");
+    expect(location.type).toBe("location");
+    expect(location.terrain.some((metric) => metric.value === "Not available")).toBe(
+      true
+    );
+  });
+
+  it("keeps missing sensor values explicit", async () => {
+    const sensor = await mockProvider.getEntityDetail(
+      { type: "sensor", id: "SIM_NODE_08" },
+      "SEVERE"
+    );
+
+    expect(sensor.type).toBe("sensor");
+    if (sensor.type === "sensor") {
+      expect(sensor.status).toBe("MISSING");
+      expect(sensor.measurements.rainfall_mm_per_hr).toBeNull();
+      expect(sensor.missing_fields).toContain("soil_moisture_percentage");
     }
   });
 });
