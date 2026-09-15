@@ -36,6 +36,29 @@ describe("createHttpClient", () => {
       undefined
     );
   });
+
+  it("requests backend GIS inspection for clicked map coordinates", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createHttpClient("http://backend", {
+      includeScenarioStage: true
+    });
+
+    await client.getEntityDetail(
+      {
+        type: "location",
+        id: "clicked-coordinate",
+        coordinates: [77.978689, 30.285029]
+      },
+      "WARNING"
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend/api/v1/map/inspect?longitude=77.978689&latitude=30.285029&scenario_stage=WARNING",
+      undefined
+    );
+  });
 });
 
 function jsonResponse(body: unknown) {

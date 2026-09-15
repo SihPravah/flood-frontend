@@ -10,7 +10,11 @@ describe("mockProvider", () => {
     expect(first).toEqual(second);
     expect(first.data_label).toBe("SIMULATED");
     expect(first.scenario_id).toBe("DEMO-001");
+    expect(first.study_area?.study_area_id).toBe("DEHRADUN-CHANDRABANI-PS26192");
     expect(first.source_health.some((source) => source.provenance === "SIMULATED")).toBe(
+      true
+    );
+    expect(first.source_health.some((source) => source.source_id === "STATIC-GIS-CHANDRABANI")).toBe(
       true
     );
     expect(first.model_metadata.operationally_validated).toBe(false);
@@ -37,10 +41,10 @@ describe("mockProvider", () => {
   it("returns explicit NO_SAFE_ROUTE for blocked demo routing", async () => {
     const result = await mockProvider.planSafeRoute(
       {
-        origin: { lon: 78.03, lat: 30.32 },
+        origin: { lon: 77.978689, lat: 30.285029 },
         destination: {
-          lon: 78.055,
-          lat: 30.342,
+          lon: 77.9767205,
+          lat: 30.2809907,
           place_id: "DEMO-NO-SAFE-ROUTE"
         },
         strategy: "fastest_available"
@@ -61,7 +65,7 @@ describe("mockProvider", () => {
 
   it("supports richer click-anything entity details", async () => {
     const ward = await mockProvider.getEntityDetail(
-      { type: "ward", id: "WARD-DEHRADUN-07" },
+      { type: "ward", id: "VILLAGE-CHANDRABANI" },
       "WARNING"
     );
     const landslide = await mockProvider.getEntityDetail(
@@ -69,13 +73,16 @@ describe("mockProvider", () => {
       "SEVERE"
     );
     const location = await mockProvider.getEntityDetail(
-      { type: "location", id: "clicked-location", coordinates: [78.042, 30.331] },
+      { type: "location", id: "clicked-location", coordinates: [77.978689, 30.285029] },
       "WARNING"
     );
 
     expect(ward.type).toBe("ward");
     expect(landslide.type).toBe("landslide");
     expect(location.type).toBe("location");
+    expect(location.terrain.some((metric) => metric.status === "OPEN_REAL_DATA")).toBe(
+      true
+    );
     expect(location.terrain.some((metric) => metric.value === "Not available")).toBe(
       true
     );

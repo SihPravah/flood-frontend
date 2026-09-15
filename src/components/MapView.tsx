@@ -83,7 +83,7 @@ export function MapView({ snapshot }: { snapshot: MapIntelligenceResponse }) {
     const tooltip = tooltipRef;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      center: [78.042, 30.331],
+      center: [77.984, 30.285],
       zoom: 13,
       minZoom: 10.5,
       pitch: 48,
@@ -195,7 +195,7 @@ function baseStyle(
         type: "raster",
         tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
         tileSize: 256,
-        attribution: "OpenStreetMap contributors"
+        attribution: "OpenStreetMap contributors (ODbL)"
       },
       catchments: geo(layers.catchments),
       wards: geo(layers.wards),

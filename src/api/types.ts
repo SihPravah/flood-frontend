@@ -28,6 +28,14 @@ export interface SourceMetadata {
   static_verification_status?: string;
   capacity_verification_status?: string;
   road_verification_status?: string;
+  terrain_source?: string;
+  terrain_source_status?: string;
+  catchment_geometry_status?: string;
+  geometry_source_status?: string;
+  geometry_basis?: string;
+  road_source?: string;
+  road_source_osm_id?: number | string | null;
+  hazard_status_basis?: string;
   provider?: string;
 }
 
@@ -141,6 +149,26 @@ export interface MapSummary {
   latest_threshold_crossing: string | null;
 }
 
+export interface StudyArea {
+  study_area_id: string;
+  name: string;
+  district: string;
+  state?: string;
+  public_crs: string;
+  metric_crs?: string;
+  bounding_box: {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+  };
+  center: {
+    longitude: number;
+    latitude: number;
+  };
+  approx_area_km2?: number;
+}
+
 export interface MapIntelligenceResponse {
   snapshot_id: string;
   generated_at: string;
@@ -154,6 +182,7 @@ export interface MapIntelligenceResponse {
   source_health: SourceHealth[];
   events: StructuredEvent[];
   model_metadata: ModelMetadata;
+  study_area?: StudyArea;
 }
 
 export interface DataMetric {
@@ -238,11 +267,16 @@ export interface CatchmentDetail extends RiskBearing {
   };
   terrain: {
     elevation_m: number | null;
+    min_elevation_m?: number | null;
+    max_elevation_m?: number | null;
     mean_slope_fraction: number | null;
+    mean_slope_deg?: number | null;
     catchment_area_km2: number | null;
     curve_number: number | null;
     hand_m: number | null;
     twi: number | null;
+    terrain_source?: string;
+    source_status?: string;
   };
   anticipation: {
     trend: Trend;

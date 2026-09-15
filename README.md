@@ -48,6 +48,7 @@ The HTTP adapter in `src/api/httpClient.ts` targets the planned PRAVAHA API:
 - `GET /api/v1/map/drains/:id`
 - `GET /api/v1/map/roads/:id`
 - `GET /api/v1/map/sensors/:id`
+- `GET /api/v1/map/inspect?longitude=:lon&latitude=:lat`
 - `GET /api/v1/map/alerts`
 - `GET /api/v1/events`
 - `POST /api/v1/routes/safe`
@@ -57,6 +58,11 @@ deterministic `DEMO-001` flow. The shared demo IDs include
 `UK-CHM-DEHRADUN-01`, `D-22`, `ROAD-SHELTER-CORRIDOR`,
 `ROAD-BRIDGE-APPROACH`, `SENSOR-SIM-RAIN-SOIL-01`, and
 `SHELTER-SCHOOL-01`.
+
+The current focused study area is `DEHRADUN-CHANDRABANI-PS26192`.
+Map geometry uses OSM roads/streams/POIs where available and SRTM-derived
+terrain metadata from the backend. Dynamic demo hazards remain tagged
+`SIMULATED / DEMO`.
 
 ## Product Surface
 

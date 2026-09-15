@@ -44,7 +44,7 @@ vi.mock("./components/MapView", async () => {
             onClick: () =>
               store
                 .getState()
-                .selectEntity("location", "clicked-location", [78.042, 30.331])
+                .selectEntity("location", "clicked-location", [77.978689, 30.285029])
           },
           "Inspect coordinate"
         )
@@ -97,9 +97,9 @@ describe("App", () => {
   it("renders operational risk, provenance, and rainfall-window intelligence", async () => {
     renderApp();
 
-    expect((await screen.findAllByText("Chandrabani upper catchment")).length).toBeGreaterThan(
-      0
-    );
+    expect(
+      (await screen.findAllByText("Chandrabani focused micro-catchment")).length
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText("SIMULATED DEMO").length).toBeGreaterThan(0);
     expect(screen.getByText("Current Rainfall")).toBeInTheDocument();
     expect(screen.getByText("Data Provenance")).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe("App", () => {
   it("opens the intelligence drawer for a selected sensor", async () => {
     renderApp();
 
-    await screen.findAllByText("Chandrabani upper catchment");
+    await screen.findAllByText("Chandrabani focused micro-catchment");
     fireEvent.click(await screen.findByRole("button", { name: "Select sensor" }));
 
     expect(await screen.findByText("SENSOR-SIM-RAIN-SOIL-01")).toBeInTheDocument();
@@ -147,8 +147,11 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Inspect coordinate" }));
 
-    expect(await screen.findByText("Generic map-pixel inspection")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Map-pixel inspection with static GIS source status")
+    ).toBeInTheDocument();
     expect(screen.getByText("HAND")).toBeInTheDocument();
+    expect(screen.getAllByText("OPEN_REAL_DATA").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Not available").length).toBeGreaterThan(0);
   });
 });

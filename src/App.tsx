@@ -80,15 +80,15 @@ const AnticipationChart = lazy(() =>
 const scenarioStages: ScenarioStage[] = ["NORMAL", "WATCH", "WARNING", "SEVERE"];
 const noSafeDestinationId = "DEMO-NO-SAFE-ROUTE";
 const defaultRouteOrigin: RoutePoint = {
-  lon: 78.03,
-  lat: 30.32,
-  label: "Clock Tower side",
-  place_id: "ORIGIN-DEMO-CLOCK-TOWER"
+  lon: 77.978689,
+  lat: 30.285029,
+  label: "Chandrabani locality",
+  place_id: "ORIGIN-CHANDRABANI"
 };
 const defaultRouteDestination: RoutePoint = {
-  lon: 78.056,
-  lat: 30.338,
-  label: "School shelter",
+  lon: 77.9940942,
+  lat: 30.28497,
+  label: "Rajaram Mohan Roy Academy demo shelter",
   place_id: "SHELTER-SCHOOL-01"
 };
 
@@ -192,13 +192,13 @@ export function App() {
       pravahaApi.planSafeRoute(
         {
           origin: {
-            lon: 78.03,
-            lat: 30.32,
+            lon: 77.978689,
+            lat: 30.285029,
             ...routeOrigin
           },
           destination: {
-            lon: 78.056,
-            lat: 30.338,
+            lon: 77.9940942,
+            lat: 30.28497,
             ...routeDestination
           },
           strategy: useMapStore.getState().routeStrategy
@@ -313,7 +313,7 @@ function TopOperationalBar({
         <div>
           <span className="brand">PRAVAHA</span>
           <span className="subtle">
-            Flash Flood Intelligence - {snapshot?.city.district ?? "Loading sector"}
+            Flash Flood Intelligence - {snapshot?.study_area?.name ?? snapshot?.city.district ?? "Loading sector"}
           </span>
         </div>
       </div>
@@ -1077,8 +1077,8 @@ function CatchmentContent({ detail }: { detail: CatchmentDetail }) {
         <MetricGrid
           metrics={[
             metric("Soil saturation", percentValue(detail.soil.saturation), undefined, detail.soil.status, detail.soil.confidence),
-            metric("Elevation", detail.terrain.elevation_m, "m", "ESTIMATED"),
-            metric("Mean slope", detail.terrain.mean_slope_fraction, "fraction", "ESTIMATED"),
+            metric("Elevation", detail.terrain.elevation_m, "m", detail.terrain.source_status ?? "ESTIMATED"),
+            metric("Mean slope", detail.terrain.mean_slope_fraction, "fraction", detail.terrain.source_status ?? "ESTIMATED"),
             metric("Area", detail.terrain.catchment_area_km2, "km2", "ESTIMATED"),
             metric("Curve number", detail.terrain.curve_number, undefined, "ESTIMATED"),
             metric("HAND", detail.terrain.hand_m, "m", "MISSING"),
@@ -1415,19 +1415,34 @@ function LocationContent({ detail }: { detail: LocationInspection }) {
         <Crosshair aria-hidden="true" />
         <div>
           <strong>{detail.latitude.toFixed(5)}, {detail.longitude.toFixed(5)}</strong>
-          <span>Generic map-pixel inspection</span>
+          <span>Map-pixel inspection with static GIS source status</span>
         </div>
       </div>
       <DetailSection title="Location">
         <MetricGrid
           metrics={[
-            metric("Jurisdiction", detail.jurisdiction, undefined, "SIMULATED"),
-            metric("Ward / village", detail.ward_or_village, undefined, "SIMULATED"),
-            metric("Catchment", detail.catchment_id, undefined, "SIMULATED"),
-            metric("Nearest road", detail.nearest_road, undefined, "ESTIMATED"),
-            metric("Nearest stream", detail.nearest_stream, undefined, "ESTIMATED"),
+            metric(
+              "Jurisdiction",
+              detail.jurisdiction,
+              undefined,
+              detail.jurisdiction ? "OPEN_REAL_DATA" : "NOT_AVAILABLE"
+            ),
+            metric(
+              "Ward / village",
+              detail.ward_or_village,
+              undefined,
+              detail.ward_or_village ? "OPEN_REAL_DATA" : "NOT_AVAILABLE"
+            ),
+            metric(
+              "Catchment",
+              detail.catchment_id,
+              undefined,
+              detail.catchment_id ? "ESTIMATED" : "NOT_AVAILABLE"
+            ),
+            metric("Nearest road", detail.nearest_road, undefined, "OPEN_REAL_DATA"),
+            metric("Nearest stream", detail.nearest_stream, undefined, "OPEN_REAL_DATA"),
             metric("Nearest drain", detail.nearest_drain, undefined, "ESTIMATED"),
-            metric("Nearest shelter", detail.nearest_shelter, undefined, "SIMULATED")
+            metric("Nearest shelter", detail.nearest_shelter, undefined, "DEMO")
           ]}
         />
       </DetailSection>
@@ -1565,10 +1580,12 @@ function RoutePlanner({
           />
         </label>
         <datalist id="pravaha-route-places">
-          <option value="Clock Tower side" />
-          <option value="School shelter" />
+          <option value="Chandrabani locality" />
+          <option value="Rajaram Mohan Roy Academy demo shelter" />
+          <option value="Transport Nagar Road" />
+          <option value="Post Office Road" />
           <option value="Isolated hillside hamlet" />
-          <option value="30.331, 78.042" />
+          <option value="30.28503, 77.97869" />
         </datalist>
       </div>
       <div className="route-actions" aria-label="Route point actions">
@@ -2054,8 +2071,8 @@ function resolveRoutePoint(value: string, role: "origin" | "destination"): Route
 
   if (role === "destination" && /isolated|hill/i.test(trimmed)) {
     return {
-      lon: 78.055,
-      lat: 30.342,
+      lon: 77.9767205,
+      lat: 30.2809907,
       label: trimmed || "Isolated hillside hamlet",
       place_id: noSafeDestinationId
     };

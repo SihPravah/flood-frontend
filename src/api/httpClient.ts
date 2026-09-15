@@ -3,6 +3,7 @@ import type {
   CatchmentDetail,
   DrainDetail,
   IntelligenceDetail,
+  LocationInspection,
   MapIntelligenceResponse,
   PravahaApi,
   RoadDetail,
@@ -64,6 +65,11 @@ export function createHttpClient(
           `${baseUrl}/api/v1/map/sensors/${selection.id}${stageParam(stage, includeScenarioStage)}`
         );
       }
+      if (selection.type === "location") {
+        return request<LocationInspection>(
+          locationInspectUrl(baseUrl, selection.coordinates, stage, includeScenarioStage)
+        );
+      }
       if (selection.type === "source_health") {
         const snapshot = await request<MapIntelligenceResponse>(
           `${baseUrl}/api/v1/map/intelligence${stageParam(stage, includeScenarioStage)}`
@@ -121,4 +127,26 @@ function stageParam(
     return "";
   }
   return `?scenario_stage=${encodeURIComponent(stage)}`;
+}
+
+function locationInspectUrl(
+  baseUrl: string,
+  coordinates: [number, number] | undefined,
+  stage: string | undefined,
+  includeScenarioStage: boolean
+) {
+  if (!coordinates) {
+    throw new Error("A coordinate is required for map location inspection.");
+  }
+
+  const [longitude, latitude] = coordinates;
+  const search = new URLSearchParams({
+    longitude: String(longitude),
+    latitude: String(latitude)
+  });
+  if (includeScenarioStage && stage) {
+    search.set("scenario_stage", stage);
+  }
+
+  return `${baseUrl}/api/v1/map/inspect?${search.toString()}`;
 }

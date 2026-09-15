@@ -37,13 +37,12 @@ const generatedAt = "2026-09-09T08:45:00.000Z";
 const scenarioId = "DEMO-001";
 const cityId = "UK-DEHRADUN";
 const catchmentId = "UK-CHM-DEHRADUN-01";
-const wardId = "WARD-DEHRADUN-07";
 const villageId = "VILLAGE-CHANDRABANI";
 const drainId = "D-22";
 const roadFastId = "ROAD-SHELTER-CORRIDOR";
 const roadBypassId = "ROAD-HIGHER-GROUND-BYPASS";
 const roadClosedId = "ROAD-BRIDGE-APPROACH";
-const roadHillId = "ROAD-HILLSIDE-LINK";
+const roadHillId = "ROAD-TRANSPORT-NAGAR-CONNECTOR";
 const routeId = "ROUTE-DEMO-001";
 const shelterId = "SHELTER-SCHOOL-01";
 const sensorId = "SENSOR-SIM-RAIN-SOIL-01";
@@ -51,6 +50,79 @@ const sensorSecondaryId = "SENSOR-SIM-RAIN-SOIL-02";
 const streamId = "STREAM-DEMO-001";
 const landslideZoneId = "LANDSLIDE-ZONE-S-01";
 const noSafeDestinationId = "DEMO-NO-SAFE-ROUTE";
+
+const studyArea = {
+  study_area_id: "DEHRADUN-CHANDRABANI-PS26192",
+  name: "Chandrabani focused micro-catchment study area",
+  district: "Dehradun",
+  state: "Uttarakhand",
+  public_crs: "EPSG:4326",
+  metric_crs: "EPSG:32643",
+  bounding_box: {
+    west: 77.968,
+    south: 30.270,
+    east: 78.000,
+    north: 30.300
+  },
+  center: {
+    longitude: 77.978689,
+    latitude: 30.285029
+  },
+  approx_area_km2: 10.25
+} satisfies NonNullable<MapIntelligenceResponse["study_area"]>;
+
+const chandrabaniPoint = [77.978689, 30.285029] satisfies [number, number];
+const secondarySensorPoint = [77.9926, 30.2854] satisfies [number, number];
+const shelterPoint = [77.9940942, 30.28497] satisfies [number, number];
+const isolatedPoint = [77.9767205, 30.2809907] satisfies [number, number];
+const catchmentPolygon = [
+  [
+    [77.968, 30.270],
+    [78.000, 30.270],
+    [78.000, 30.300],
+    [77.968, 30.300],
+    [77.968, 30.270]
+  ]
+];
+const directRoadCoords: [number, number][] = [
+  [77.9921844, 30.2815189],
+  [77.9912487, 30.2822485],
+  [77.9919438, 30.2838838],
+  [77.9926018, 30.2854228],
+  [77.9936385, 30.2876034],
+  [77.994848, 30.2898648],
+  [77.9974537, 30.294051]
+];
+const bypassRoadCoords: [number, number][] = [
+  [77.9889999, 30.2752512],
+  [77.9894658, 30.2750446],
+  [77.990256, 30.2745811],
+  [77.9918576, 30.2736417],
+  [77.9945152, 30.2720267],
+  [77.9965798, 30.2700555]
+];
+const closedRoadCoords: [number, number][] = [
+  [77.9766333, 30.2810359],
+  [77.9767205, 30.2809907]
+];
+const streamCoords: [number, number][] = [
+  [77.9883529, 30.2996786],
+  [77.9864617, 30.2978559],
+  [77.9831561, 30.2950073],
+  [77.9815021, 30.2941741],
+  [77.9807278, 30.291094],
+  [77.9787451, 30.2892119],
+  [77.9768518, 30.2877356]
+];
+const landslidePolygon = [
+  [
+    [77.971, 30.290],
+    [77.980, 30.290],
+    [77.980, 30.298],
+    [77.971, 30.298],
+    [77.971, 30.290]
+  ]
+];
 
 interface StageProfile {
   cityStatus: CityStatus["operational_status"];
@@ -200,13 +272,14 @@ export const mockProvider: PravahaApi = {
       data_label: "SIMULATED",
       city: {
         city_id: cityId,
-        name: "Dehradun",
-        district: "Dehradun district demo sector",
+        name: "Chandrabani",
+        district: "Chandrabani, Dehradun",
         operational_status: profile.cityStatus,
         confidence: profile.confidence,
         reasons: profile.reasons,
         last_updated: generatedAt
       },
+      study_area: studyArea,
       layers: buildLayers(stage, profile),
       summary: {
         catchment_count: 1,
@@ -215,8 +288,8 @@ export const mockProvider: PravahaApi = {
         roads_to_avoid: profile.roadRecommendation === "AVOID" ? 1 : 0,
         confirmed_road_closures: stage === "SEVERE" ? 1 : 0,
         active_alerts: stage === "NORMAL" ? 0 : stage === "WATCH" ? 1 : 2,
-        highest_risk_catchment: "Chandrabani upper catchment",
-        highest_risk_ward: "Ward 7 demo sector",
+        highest_risk_catchment: "Chandrabani focused micro-catchment",
+        highest_risk_ward: "Chandrabani settlement point",
         shelters_available: 1,
         exposed_population: profile.exposedPopulation,
         source_health: sourceHealth(stage),
@@ -287,8 +360,8 @@ export const mockProvider: PravahaApi = {
         risk_level: profile.alertLevel,
         severity: profile.alertLevel,
         confidence: profile.confidence,
-        location: "Chandrabani upper catchment",
-        message: `${profile.alertLevel} demo flood intelligence for Ward 7 corridor.`,
+        location: "Chandrabani focused micro-catchment",
+        message: `${profile.alertLevel} demo flood intelligence for the Chandrabani settlement corridor.`,
         recommended_review:
           stage === "WATCH"
             ? "Review drain D-22 and prepare route monitoring."
@@ -376,153 +449,119 @@ function buildLayers(
 ): MapIntelligenceResponse["layers"] {
   return {
     catchments: collection([
-      feature("catchment", catchmentId, "Polygon", [
-        [
-          [78.028, 30.318],
-          [78.058, 30.318],
-          [78.058, 30.344],
-          [78.028, 30.344],
-          [78.028, 30.318]
-        ]
-      ], {
-        name: "Chandrabani upper catchment",
+      feature("catchment", catchmentId, "Polygon", catchmentPolygon, {
+        name: "Chandrabani focused micro-catchment",
         risk_level: profile.riskLevel,
         risk_score: profile.riskScore,
-        confidence: profile.confidence
+        confidence: profile.confidence,
+        geometry_source_status: "ESTIMATED",
+        terrain_source_status: "OPEN_REAL_DATA"
       })
     ]),
     wards: collection([
-      feature("ward", wardId, "Polygon", [
-        [
-          [78.034, 30.322],
-          [78.052, 30.322],
-          [78.052, 30.339],
-          [78.034, 30.339],
-          [78.034, 30.322]
-        ]
-      ], {
-        name: "Ward 7 demo sector",
+      feature("ward", villageId, "Point", chandrabaniPoint, {
+        name: "Chandrabani settlement point",
         risk_level: profile.riskLevel,
-        confidence: profile.confidence
+        confidence: profile.confidence,
+        source_status: "OPEN_REAL_DATA",
+        osm_id: 2379693646
       })
     ]),
     rainfall: collection([
-      feature("rainfall", "RAIN-CELL-01", "Polygon", [
-        [
-          [78.032, 30.321],
-          [78.052, 30.321],
-          [78.052, 30.341],
-          [78.032, 30.341],
-          [78.032, 30.321]
-        ]
-      ], {
+      feature("rainfall", "RAIN-CELL-01", "Polygon", catchmentPolygon, {
         intensity_mm_per_hr: profile.rainfallIntensity,
-        risk_level: profile.riskLevel
+        risk_level: profile.riskLevel,
+        data_label: "SIMULATED"
       })
     ]),
     sensors: collection([
-      feature("sensor", sensorId, "Point", [78.039, 30.329], {
+      feature("sensor", sensorId, "Point", chandrabaniPoint, {
         status: "SIMULATED",
         freshness: "GOOD",
         rainfall_mm_per_hr: profile.rainfallIntensity
       }),
-      feature("sensor", sensorSecondaryId, "Point", [78.049, 30.337], {
+      feature("sensor", sensorSecondaryId, "Point", secondarySensorPoint, {
         status: stage === "SEVERE" ? "MISSING" : "SIMULATED",
         freshness: stage === "SEVERE" ? "UNUSABLE" : "DEGRADED",
         rainfall_mm_per_hr: stage === "SEVERE" ? null : profile.rainfallIntensity * 0.8
       })
     ]),
     rivers: collection([
-      feature("river", streamId, "LineString", [
-        [78.026, 30.317],
-        [78.043, 30.329],
-        [78.061, 30.343]
-      ], { name: "Seasonal stream", stream_order: 2 })
+      feature("river", streamId, "LineString", streamCoords, {
+        name: "Unnamed OSM stream",
+        source_status: "OPEN_REAL_DATA",
+        osm_id: 234936176
+      })
     ]),
     drains: collection([
-      feature("drain", drainId, "LineString", [
-        [78.030, 30.320],
-        [78.038, 30.328],
-        [78.047, 30.336]
-      ], {
-        name: "D-22 downstream collector",
+      feature("drain", drainId, "LineString", streamCoords, {
+        name: "D-22 estimated collector aligned to OSM stream",
         risk_level: profile.drainUtilization >= 1 ? "HIGH" : "WATCH",
-        utilization: profile.drainUtilization
+        utilization: profile.drainUtilization,
+        capacity_source_status: "ESTIMATED",
+        geometry_source_status: "OPEN_REAL_DATA"
       }),
-      feature("drain", "D-23", "LineString", [
-        [78.052, 30.321],
-        [78.048, 30.330],
-        [78.045, 30.341]
-      ], {
-        name: "D-23 hillside chute",
+      feature("drain", "D-23", "LineString", closedRoadCoords, {
+        name: "D-23 demo culvert placeholder",
         risk_level: stage === "SEVERE" ? "WARNING" : "WATCH",
-        utilization: Math.min(profile.drainUtilization * 0.78, 1.12)
+        utilization: Math.min(profile.drainUtilization * 0.78, 1.12),
+        capacity_source_status: "ESTIMATED",
+        geometry_source_status: "DEMO"
       })
     ]),
     roads: collection([
-      feature("road", roadFastId, "LineString", [
-        [78.030, 30.3202],
-        [78.037, 30.3282],
-        [78.047, 30.337]
-      ], {
-        name: "Clock Tower shelter corridor",
+      feature("road", roadFastId, "LineString", directRoadCoords, {
+        name: "Transport Nagar Road",
         recommendation: profile.roadRecommendation,
-        risk_level: profile.riskLevel
+        risk_level: profile.riskLevel,
+        source_status: "OPEN_REAL_DATA",
+        osm_id: 114099376
       }),
-      feature("road", roadBypassId, "LineString", [
-        [78.029, 30.319],
-        [78.041, 30.326],
-        [78.056, 30.338]
-      ], {
-        name: "Higher-ground bypass",
+      feature("road", roadBypassId, "LineString", bypassRoadCoords, {
+        name: "Post Office Road",
         recommendation: stage === "NORMAL" ? "PASSABLE" : "CAUTION",
-        risk_level: stage === "NORMAL" ? "LOW" : "WATCH"
+        risk_level: stage === "NORMAL" ? "LOW" : "WATCH",
+        source_status: "OPEN_REAL_DATA",
+        osm_id: 101971528
       }),
-      feature("road", roadHillId, "LineString", [
-        [78.045, 30.330],
-        [78.055, 30.342]
-      ], {
-        name: "Hill road segment",
+      feature("road", roadHillId, "LineString", closedRoadCoords, {
+        name: "Unnamed connector",
         recommendation: stage === "SEVERE" ? "AVOID" : "CAUTION",
-        risk_level: stage === "SEVERE" ? "HIGH" : "WATCH"
+        risk_level: stage === "SEVERE" ? "HIGH" : "WATCH",
+        source_status: "OPEN_REAL_DATA",
+        osm_id: 1095906636
       })
     ]),
     landslide: collection([
-      feature("landslide", landslideZoneId, "Polygon", [
-        [
-          [78.044, 30.330],
-          [78.057, 30.330],
-          [78.057, 30.343],
-          [78.044, 30.343],
-          [78.044, 30.330]
-        ]
-      ], {
-        name: "S-01 steep saturated slope",
+      feature("landslide", landslideZoneId, "Polygon", landslidePolygon, {
+        name: "S-01 demo susceptibility zone",
         susceptibility:
           stage === "SEVERE" ? "HIGH" : stage === "NORMAL" ? "LOW" : "WATCH",
         risk_level:
-          stage === "SEVERE" ? "HIGH" : stage === "NORMAL" ? "LOW" : "WATCH"
+          stage === "SEVERE" ? "HIGH" : stage === "NORMAL" ? "LOW" : "WATCH",
+        source_status: "DEMO"
       })
     ]),
     closures: collection(
       stage === "SEVERE"
         ? [
-            feature("road", roadClosedId, "LineString", [
-              [78.036, 30.324],
-              [78.042, 30.331]
-            ], {
-              name: "Bridge approach",
+            feature("road", roadClosedId, "LineString", closedRoadCoords, {
+              name: "DEMO authority closure on mapped unnamed road",
               recommendation: "CLOSED",
               authority_closed: true,
-              risk_level: "SEVERE"
+              risk_level: "SEVERE",
+              source_status: "OPEN_REAL_DATA",
+              status_basis: "DEMO_AUTHORITY_CLOSURE"
             })
           ]
         : []
     ),
     shelters: collection([
-      feature("shelter", shelterId, "Point", [78.056, 30.338], {
-        name: "School shelter",
-        status: "AVAILABLE"
+      feature("shelter", shelterId, "Point", shelterPoint, {
+        name: "Demo shelter at Rajaram Mohan Roy Academy POI",
+        status: "AVAILABLE",
+        source_status: "DEMO",
+        poi_source_status: "OPEN_REAL_DATA"
       })
     ]),
     routes: collection([
@@ -541,8 +580,8 @@ function catchmentDetail(id: string, stage: ScenarioStage): CatchmentDetail {
     ...risk(profile, [sensorId]),
     type: "catchment",
     catchment_id: id,
-    name: "Chandrabani upper catchment",
-    ward_name: "Ward 7 demo sector",
+    name: "Chandrabani focused micro-catchment",
+    ward_name: "Chandrabani settlement point",
     snapshot_id: snapshotId(stage),
     fused_state: "FusedCatchmentState v2.1",
     status: profile.cityStatus,
@@ -575,12 +614,17 @@ function catchmentDetail(id: string, stage: ScenarioStage): CatchmentDetail {
       confidence: profile.confidence
     },
     terrain: {
-      elevation_m: 642,
-      mean_slope_fraction: 0.18,
-      catchment_area_km2: 4.6,
+      elevation_m: 605.1,
+      min_elevation_m: 594,
+      max_elevation_m: 646,
+      mean_slope_fraction: 0.0079,
+      mean_slope_deg: 0.46,
+      catchment_area_km2: 10.25,
       curve_number: 79,
       hand_m: null,
-      twi: null
+      twi: null,
+      terrain_source: "OpenTopoData SRTM 30m elevation API",
+      source_status: "OPEN_REAL_DATA"
     },
     anticipation: {
       trend: profile.timeline[0].trend,
@@ -637,8 +681,8 @@ function catchmentDetail(id: string, stage: ScenarioStage): CatchmentDetail {
       }
     ],
     impact: {
-      affected_wards: [wardId],
-      exposed_roads: [roadFastId, roadHillId],
+      affected_wards: [villageId],
+      exposed_roads: [roadFastId, roadClosedId],
       threatened_shelters: stage === "SEVERE" ? [shelterId] : [],
       exposed_population: profile.exposedPopulation,
       evacuation_readiness:
@@ -655,8 +699,12 @@ function drainDetail(id: string, stage: ScenarioStage): DrainDetail {
   return {
     type: "drain",
     drain_id: id,
-    name: id === drainId ? "D-22 downstream collector" : "D-23 hillside chute",
-    drain_type: "open lined municipal drain",
+    name:
+      id === drainId
+        ? "D-22 estimated collector aligned to OSM stream"
+        : "D-23 demo culvert placeholder",
+    drain_type:
+      id === drainId ? "estimated collector aligned to OSM stream" : "demo placeholder",
     snapshot_id: snapshotId(stage),
     risk_score: Math.min(profile.drainUtilization / 1.6, 1),
     risk_level: profile.drainUtilization >= 1 ? "HIGH" : "WATCH",
@@ -666,7 +714,8 @@ function drainDetail(id: string, stage: ScenarioStage): DrainDetail {
         ? ["estimated_inflow_exceeds_effective_capacity", "upstream_runoff_rising"]
         : ["drain_utilization_below_capacity"],
     provenance: simulated([catchmentId], {
-      capacity_verification_status: "ESTIMATED"
+      capacity_verification_status: "ESTIMATED",
+      geometry_source_status: id === drainId ? "OPEN_REAL_DATA" : "DEMO"
     }),
     last_updated: generatedAt,
     upstream_nodes: ["D-22-U1", "D-22-U2"],
@@ -681,7 +730,7 @@ function drainDetail(id: string, stage: ScenarioStage): DrainDetail {
     condition_factor: 0.82,
     affected_roads: [roadFastId],
     contributing_catchments: [catchmentId],
-    nearby_settlements: [villageId, "Ward 7 demo sector"],
+    nearby_settlements: [villageId, "Chandrabani settlement point"],
     timeline: profile.timeline,
     provenance_table: provenanceRows(profile).filter((row) =>
       ["rainfall", "runoff", "drain capacity"].includes(row.variable)
@@ -693,6 +742,7 @@ function roadDetail(id: string, stage: ScenarioStage): RoadDetail {
   const profile = stages[stage];
   const isBypass = id === roadBypassId;
   const isClosure = id === roadClosedId;
+  const isHill = id === roadHillId;
   const recommendation = isClosure
     ? "CLOSED"
     : isBypass
@@ -706,13 +756,15 @@ function roadDetail(id: string, stage: ScenarioStage): RoadDetail {
     road_id: id,
     name:
       id === roadBypassId
-        ? "Higher-ground bypass"
+        ? "Post Office Road"
         : isClosure
-          ? "Bridge approach authority closure"
-          : "Clock Tower shelter corridor",
-    road_class: isBypass ? "collector road" : "urban arterial",
-    segment_length_km: isBypass ? 2.8 : 1.9,
-    jurisdiction: "Dehradun municipal demo sector",
+          ? "DEMO authority closure on mapped unnamed road"
+          : isHill
+            ? "Unnamed connector"
+            : "Transport Nagar Road",
+    road_class: isBypass ? "tertiary" : isHill || isClosure ? "unclassified" : "tertiary",
+    segment_length_km: isBypass ? 0.98 : isHill || isClosure ? 0.01 : 1.6,
+    jurisdiction: "Chandrabani focused study area, Dehradun",
     snapshot_id: snapshotId(stage),
     risk_score: isBypass ? 0.34 : isClosure ? 0.95 : Math.min(profile.riskScore + 0.12, 1),
     risk_level: isBypass ? "WATCH" : isClosure ? "SEVERE" : profile.riskLevel,
@@ -724,7 +776,11 @@ function roadDetail(id: string, stage: ScenarioStage): RoadDetail {
           ? ["authority_confirmed_closure"]
           : ["route_segment_requires_monitoring"],
     provenance: simulated([drainId], {
-      static_verification_status: "ESTIMATED"
+      road_source: "OpenStreetMap",
+      road_source_osm_id: isBypass ? 101971528 : isHill || isClosure ? 1095906636 : 114099376,
+      road_verification_status: "OPEN_REAL_DATA",
+      static_verification_status: "ESTIMATED",
+      hazard_status_basis: isClosure ? "DEMO_AUTHORITY_CLOSURE" : "MODEL_RECOMMENDATION"
     }),
     last_updated: generatedAt,
     recommendation,
@@ -734,7 +790,10 @@ function roadDetail(id: string, stage: ScenarioStage): RoadDetail {
     terrain: {
       depression_score: isBypass ? 0.12 : 0.68,
       stream_proximity_m: isBypass ? 180 : 38,
-      mean_slope_fraction: isBypass ? 0.07 : 0.14
+      mean_slope_fraction: 0.0079,
+      mean_slope_deg: 0.46,
+      terrain_source: "OpenTopoData SRTM 30m elevation API",
+      source_status: "OPEN_REAL_DATA"
     },
     historical_waterlogging_score: isBypass ? 0.08 : 0.76,
     landslide_exposure: {
@@ -744,14 +803,14 @@ function roadDetail(id: string, stage: ScenarioStage): RoadDetail {
     contributors: [
       metric("Catchment flood risk", Math.round(profile.riskScore * 100), "%", profile.riskLevel),
       metric("Nearby drain utilization", Math.round(profile.drainUtilization * 100), "%", profile.drainUtilization >= 1 ? "HIGH" : "WATCH"),
-      metric("Stream proximity", isBypass ? 180 : 38, "m", "ESTIMATED"),
+      metric("Stream proximity", isBypass ? 180 : 38, "m", "DERIVED_FROM_REAL_DATA"),
       metric("Historical waterlogging", isBypass ? 8 : 76, "%", "ESTIMATED"),
       metric("Landslide exposure", stage === "SEVERE" ? "HIGH" : "WATCH", undefined, stage === "SEVERE" ? "HIGH" : "WATCH")
     ],
     related_infrastructure: [
       metric("Associated drain", drainId, undefined, "ESTIMATED"),
-      metric("Nearest shelter", shelterId, undefined, "SIMULATED"),
-      metric("Alternative road", roadBypassId, undefined, "SIMULATED")
+      metric("Nearest shelter", shelterId, undefined, "DEMO"),
+      metric("Alternative road", roadBypassId, undefined, "OPEN_REAL_DATA")
     ],
     anticipation: [
       metric("Possible degradation", stage === "NORMAL" ? "Not available" : "+30 min", undefined, "SIMULATED"),
@@ -772,8 +831,8 @@ function sensorDetail(id: string, stage: ScenarioStage): SensorDetail {
     device_id: id,
     sensor_type: "rainfall_soil_tilt_node",
     snapshot_id: snapshotId(stage),
-    latitude: id === sensorId ? 30.329 : 30.337,
-    longitude: id === sensorId ? 78.039 : 78.049,
+    latitude: id === sensorId ? chandrabaniPoint[1] : secondarySensorPoint[1],
+    longitude: id === sensorId ? chandrabaniPoint[0] : secondarySensorPoint[0],
     source: "deterministic frontend demo provider",
     measurements: {
       rainfall_mm_per_hr: missing ? null : profile.rainfallIntensity,
@@ -799,8 +858,8 @@ function wardDetail(id: string, stage: ScenarioStage): WardDetail {
     ...risk(profile, [catchmentId]),
     type: "ward",
     ward_id: id,
-    name: "Ward 7 demo sector",
-    admin_level: "WARD",
+    name: "Chandrabani settlement point",
+    admin_level: "VILLAGE",
     snapshot_id: snapshotId(stage),
     population: null,
     catchments_intersecting: [catchmentId],
@@ -836,7 +895,7 @@ function landslideDetail(id: string, stage: ScenarioStage): LandslideDetail {
     historical_inventory: "Demo fixture references historical inventory relationship as ESTIMATED",
     affected_assets: [roadHillId, drainId, streamId],
     cascade_impact: [
-      "Slope material could affect Hill road segment",
+      "Slope material could affect the mapped unnamed connector",
       "Blocked roadside drainage may increase local waterlogging"
     ]
   };
@@ -876,14 +935,15 @@ function shelterDetail(id: string, stage: ScenarioStage): ShelterDetail {
   return {
     type: "shelter",
     shelter_id: id,
-    name: "School shelter",
+    name: "Demo shelter at Rajaram Mohan Roy Academy POI",
     snapshot_id: snapshotId(stage),
     status: stage === "SEVERE" ? "NEAR_CAPACITY" : "AVAILABLE",
     capacity_people: null,
     current_occupancy: null,
     nearest_safe_route: stage === "SEVERE" ? null : routeId,
     provenance: simulated([id], {
-      static_verification_status: "ESTIMATED"
+      static_verification_status: "DEMO",
+      geometry_source_status: "OPEN_REAL_DATA"
     }),
     last_updated: generatedAt
   };
@@ -894,32 +954,34 @@ function locationInspection(
   stage: ScenarioStage
 ): LocationInspection {
   const profile = stages[stage];
-  const lon = selection.coordinates?.[0] ?? 78.042;
-  const lat = selection.coordinates?.[1] ?? 30.331;
+  const lon = selection.coordinates?.[0] ?? chandrabaniPoint[0];
+  const lat = selection.coordinates?.[1] ?? chandrabaniPoint[1];
   return {
     type: "location",
     id: `loc_${lat.toFixed(5)}_${lon.toFixed(5)}`,
     snapshot_id: snapshotId(stage),
     latitude: lat,
     longitude: lon,
-    jurisdiction: "Dehradun district demo sector",
-    ward_or_village: wardId,
+    jurisdiction: "Chandrabani, Dehradun",
+    ward_or_village: villageId,
     catchment_id: catchmentId,
     nearest_road: roadFastId,
     nearest_stream: streamId,
     nearest_drain: drainId,
     nearest_shelter: shelterId,
     terrain: [
-      metric("Elevation", 642, "m", "ESTIMATED"),
-      metric("Slope", 0.18, "fraction", "ESTIMATED"),
+      metric("Nearest SRTM elevation", 596, "m", "OPEN_REAL_DATA"),
+      metric("Mean slope", 0.46, "deg", "DERIVED_FROM_REAL_DATA"),
+      metric("Slope fraction", 0.0079, "fraction", "DERIVED_FROM_REAL_DATA"),
       metric("Aspect", "Not available", undefined, "MISSING"),
       metric("HAND", "Not available", undefined, "MISSING"),
       metric("TWI", "Not available", undefined, "MISSING"),
       metric("Flow direction", "Not available", undefined, "MISSING")
     ],
     hydrology: [
-      metric("Catchment ID", catchmentId, undefined, "SIMULATED"),
-      metric("Drain proximity", 42, "m", "ESTIMATED"),
+      metric("Catchment ID", catchmentId, undefined, "ESTIMATED"),
+      metric("Nearest OSM stream", streamId, undefined, "OPEN_REAL_DATA"),
+      metric("Drain proximity", 42, "m", "DERIVED_FROM_REAL_DATA"),
       metric("Current runoff estimate", profile.runoffMm, "mm", "SIMULATED"),
       metric("Drainage density", "Not available", undefined, "MISSING")
     ],
@@ -930,8 +992,10 @@ function locationInspection(
       metric("Soil saturation", Math.round(profile.soilSaturation * 100), "%", "SIMULATED")
     ],
     data_quality: [
-      metric("Source", "frontend-demo-provider", undefined, "SIMULATED"),
-      metric("Resolution", "Not available", undefined, "MISSING"),
+      metric("DEM source", "OpenTopoData SRTM 30m", undefined, "OPEN_REAL_DATA"),
+      metric("Road/stream source", "OpenStreetMap", undefined, "OPEN_REAL_DATA"),
+      metric("Shelter designation", "Demo only", undefined, "DEMO"),
+      metric("Resolution", 30, "m", "OPEN_REAL_DATA"),
       metric("Last updated", generatedAt, undefined, "SIMULATED"),
       metric("Confidence", Math.round(profile.confidence * 100), "%", "SIMULATED")
     ]
@@ -970,17 +1034,18 @@ function sourceHealth(stage: ScenarioStage): SourceHealth[] {
           : "Deterministic secondary demo sensor"
     },
     {
-      source_id: "GIS-DEMO-CATCHMENTS",
-      name: "Configurable demo GIS mapping",
+      source_id: "STATIC-GIS-CHANDRABANI",
+      name: "Chandrabani OSM + SRTM static GIS",
       category: "static_gis",
       status: "STATIC",
       last_success_at: null,
       last_observation_at: null,
       age_seconds: null,
       expected_interval_seconds: null,
-      freshness: "DEGRADED",
-      provenance: "ESTIMATED",
-      message: "Static demo mapping; not municipal verification"
+      freshness: "GOOD",
+      provenance: "DERIVED",
+      message:
+        "OpenStreetMap roads/stream/POIs with OpenTopoData SRTM terrain; catchment and drain capacity remain estimated/demo where marked."
     },
     {
       source_id: "ML-DEVELOPMENT-FALLBACK",
@@ -1075,7 +1140,7 @@ function events(stage: ScenarioStage): StructuredEvent[] {
         "road",
         roadClosedId,
         "Authority closure active",
-        "Bridge approach is explicitly CLOSED by authority-confirmed demo fixture.",
+        "Mapped unnamed connector is explicitly CLOSED by a demo authority-closure fixture.",
         ["authority_confirmed_closure"]
       )
     );
@@ -1173,17 +1238,17 @@ function provenanceRows(profile: StageProfile): ProvenanceRow[] {
     },
     {
       variable: "drain capacity",
-      source: "demo GIS profile",
+      source: "estimated municipal capacity profile",
       status: "ESTIMATED",
       age_minutes: null,
       confidence: 0.66
     },
     {
       variable: "DEM terrain",
-      source: "demo GIS profile",
-      status: "ESTIMATED",
+      source: "OpenTopoData SRTM 30m",
+      status: "DERIVED",
       age_minutes: null,
-      confidence: 0.64
+      confidence: 0.78
     }
   ];
 }
@@ -1232,7 +1297,9 @@ function risk(profile: StageProfile, sources: string[]) {
     confidence: profile.confidence,
     reasons: profile.reasons,
     provenance: simulated(sources, {
-      static_verification_status: "ESTIMATED"
+      static_verification_status: "ESTIMATED",
+      terrain_source_status: "OPEN_REAL_DATA",
+      catchment_geometry_status: "ESTIMATED"
     }),
     last_updated: generatedAt
   };
@@ -1383,66 +1450,53 @@ function routeEdges(stage: ScenarioStage): DemoEdge[] {
       start: "origin",
       end: "shelter",
       road_id: roadFastId,
-      label: "Clock Tower shelter corridor",
+      label: "Transport Nagar Road",
       recommendation: directRecommendation,
       risk_score: Number(directRisk.toFixed(2)),
       risk_level: directRecommendation === "AVOID" ? "HIGH" : profile.riskLevel,
       confidence: profile.confidence,
       travel_time_minutes: 11,
-      distance_km: 4.8,
-      coordinates: [
-        [78.030, 30.320],
-        [78.039, 30.329],
-        [78.052, 30.335]
-      ]
+      distance_km: 1.6,
+      coordinates: directRoadCoords
     },
     {
       start: "origin",
       end: "ridge",
       road_id: roadBypassId,
-      label: "Higher-ground bypass west",
+      label: "Post Office Road west",
       recommendation: stage === "NORMAL" ? "PASSABLE" : "CAUTION",
       risk_score: stage === "NORMAL" ? 0.18 : 0.34,
       risk_level: stage === "NORMAL" ? "LOW" : "WATCH",
       confidence: 0.78,
       travel_time_minutes: 9,
-      distance_km: 3.1,
-      coordinates: [
-        [78.029, 30.319],
-        [78.041, 30.326]
-      ]
+      distance_km: 0.5,
+      coordinates: bypassRoadCoords.slice(0, 3)
     },
     {
       start: "ridge",
       end: "shelter",
       road_id: roadBypassId,
-      label: "Higher-ground bypass east",
+      label: "Post Office Road east",
       recommendation: stage === "NORMAL" ? "PASSABLE" : "CAUTION",
       risk_score: stage === "NORMAL" ? 0.2 : 0.38,
       risk_level: stage === "NORMAL" ? "LOW" : "WATCH",
       confidence: 0.71,
       travel_time_minutes: 9,
-      distance_km: 3.3,
-      coordinates: [
-        [78.041, 30.326],
-        [78.056, 30.338]
-      ]
+      distance_km: 0.48,
+      coordinates: bypassRoadCoords.slice(2)
     },
     {
       start: "origin",
       end: "bridge",
       road_id: roadClosedId,
-      label: "Bridge approach",
+      label: "Mapped unnamed connector",
       recommendation: bridgeRecommendation,
       risk_score: stage === "SEVERE" ? 0.95 : 0.42,
       risk_level: stage === "SEVERE" ? "SEVERE" : "WATCH",
       confidence: 0.92,
       travel_time_minutes: 5,
-      distance_km: 1.5,
-      coordinates: [
-        [78.036, 30.324],
-        [78.042, 30.331]
-      ]
+      distance_km: 0.01,
+      coordinates: closedRoadCoords
     },
     {
       start: "bridge",
@@ -1454,11 +1508,8 @@ function routeEdges(stage: ScenarioStage): DemoEdge[] {
       risk_level: stage === "SEVERE" ? "HIGH" : "WATCH",
       confidence: 0.66,
       travel_time_minutes: 8,
-      distance_km: 2.1,
-      coordinates: [
-        [78.042, 30.331],
-        [78.055, 30.342]
-      ]
+      distance_km: 0.01,
+      coordinates: [closedRoadCoords[1], isolatedPoint]
     }
   ];
 }
@@ -1556,17 +1607,9 @@ function segment(
 
 function routeCoordinates(stage: ScenarioStage): [number, number][] {
   if (stage === "WARNING" || stage === "SEVERE") {
-    return [
-      [78.029, 30.319],
-      [78.041, 30.326],
-      [78.056, 30.338]
-    ];
+    return bypassRoadCoords;
   }
-  return [
-    [78.030, 30.320],
-    [78.039, 30.329],
-    [78.052, 30.335]
-  ];
+  return directRoadCoords;
 }
 
 function snapshotId(stage: ScenarioStage) {
