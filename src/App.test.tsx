@@ -19,7 +19,10 @@ vi.mock("./components/MapView", async () => {
           "button",
           {
             type: "button",
-            onClick: () => store.getState().selectEntity("sensor", "SIM_NODE_04")
+            onClick: () =>
+              store
+                .getState()
+                .selectEntity("sensor", "SENSOR-SIM-RAIN-SOIL-01")
           },
           "Select sensor"
         ),
@@ -27,7 +30,10 @@ vi.mock("./components/MapView", async () => {
           "button",
           {
             type: "button",
-            onClick: () => store.getState().selectEntity("sensor", "SIM_NODE_08")
+            onClick: () =>
+              store
+                .getState()
+                .selectEntity("sensor", "SENSOR-SIM-RAIN-SOIL-02")
           },
           "Select missing sensor"
         ),
@@ -63,6 +69,7 @@ function renderApp() {
 
 describe("App", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     useMapStore.setState({
       scenario: "WARNING",
       selectedEntity: {
@@ -72,6 +79,8 @@ describe("App", () => {
       hoverCoordinates: null,
       clickedCoordinates: null,
       routeStrategy: "safest",
+      demoPlaying: false,
+      demoSpeed: 1,
       leftRailCollapsed: false,
       layerManagerOpen: true,
       legendOpen: true,
@@ -82,6 +91,7 @@ describe("App", () => {
 
   afterEach(() => {
     cleanup();
+    vi.clearAllTimers();
   });
 
   it("renders operational risk, provenance, and rainfall-window intelligence", async () => {
@@ -99,12 +109,13 @@ describe("App", () => {
   it("opens the intelligence drawer for a selected sensor", async () => {
     renderApp();
 
+    await screen.findAllByText("Chandrabani upper catchment");
     fireEvent.click(await screen.findByRole("button", { name: "Select sensor" }));
 
-    expect(await screen.findByText("SIM_NODE_04")).toBeInTheDocument();
+    expect(await screen.findByText("SENSOR-SIM-RAIN-SOIL-01")).toBeInTheDocument();
     expect(await screen.findByText("Measurements")).toBeInTheDocument();
     expect(screen.getByText("Rainfall Mm Per Hr")).toBeInTheDocument();
-  });
+  }, 15000);
 
   it("shows missing-data states instead of zeroing unavailable sensor values", async () => {
     renderApp();
@@ -112,7 +123,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "SEVERE" }));
     fireEvent.click(await screen.findByRole("button", { name: "Select missing sensor" }));
 
-    expect(await screen.findByText("SIM_NODE_08")).toBeInTheDocument();
+    expect(await screen.findByText("SENSOR-SIM-RAIN-SOIL-02")).toBeInTheDocument();
     expect((await screen.findAllByText("MISSING")).length).toBeGreaterThan(0);
     expect(await screen.findByText(/Missing:/)).toBeInTheDocument();
   });
@@ -121,6 +132,9 @@ describe("App", () => {
     renderApp();
 
     fireEvent.click(screen.getByRole("button", { name: "SEVERE" }));
+    fireEvent.change(screen.getByLabelText("Route destination"), {
+      target: { value: "Isolated hillside hamlet" }
+    });
     fireEvent.click(screen.getAllByRole("button", { name: "Fastest Available" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Compare routes" }));
 

@@ -7,43 +7,77 @@ import type {
   PravahaApi,
   RoadDetail,
   SafeRouteResponse,
-  SensorDetail
+  SensorDetail,
+  SourceHealthDetail,
+  StructuredEvent
 } from "./types";
 
-export function createHttpClient(baseUrl: string): PravahaApi {
+interface HttpClientOptions {
+  includeScenarioStage?: boolean;
+}
+
+export function createHttpClient(
+  baseUrl: string,
+  options: HttpClientOptions = {}
+): PravahaApi {
+  const includeScenarioStage = options.includeScenarioStage ?? false;
+
   return {
-    getMapIntelligence: () =>
+    getMapIntelligence: (stage) =>
       request<MapIntelligenceResponse>(
-        `${baseUrl}/api/v1/map/intelligence`
+        `${baseUrl}/api/v1/map/intelligence${stageParam(stage, includeScenarioStage)}`
       ),
-    getCatchmentDetail: (id) =>
-      request<CatchmentDetail>(`${baseUrl}/api/v1/map/catchments/${id}`),
-    getDrainDetail: (id) =>
-      request<DrainDetail>(`${baseUrl}/api/v1/map/drains/${id}`),
-    getRoadDetail: (id) =>
-      request<RoadDetail>(`${baseUrl}/api/v1/map/roads/${id}`),
-    getSensorDetail: (id) =>
-      request<SensorDetail>(`${baseUrl}/api/v1/map/sensors/${id}`),
-    getEntityDetail: (selection) => {
+    getCatchmentDetail: (id, stage) =>
+      request<CatchmentDetail>(
+        `${baseUrl}/api/v1/map/catchments/${id}${stageParam(stage, includeScenarioStage)}`
+      ),
+    getDrainDetail: (id, stage) =>
+      request<DrainDetail>(
+        `${baseUrl}/api/v1/map/drains/${id}${stageParam(stage, includeScenarioStage)}`
+      ),
+    getRoadDetail: (id, stage) =>
+      request<RoadDetail>(
+        `${baseUrl}/api/v1/map/roads/${id}${stageParam(stage, includeScenarioStage)}`
+      ),
+    getSensorDetail: (id, stage) =>
+      request<SensorDetail>(
+        `${baseUrl}/api/v1/map/sensors/${id}${stageParam(stage, includeScenarioStage)}`
+      ),
+    getEntityDetail: async (selection, stage) => {
       if (selection.type === "catchment") {
         return request<CatchmentDetail>(
-          `${baseUrl}/api/v1/map/catchments/${selection.id}`
+          `${baseUrl}/api/v1/map/catchments/${selection.id}${stageParam(stage, includeScenarioStage)}`
         );
       }
       if (selection.type === "drain") {
         return request<DrainDetail>(
-          `${baseUrl}/api/v1/map/drains/${selection.id}`
+          `${baseUrl}/api/v1/map/drains/${selection.id}${stageParam(stage, includeScenarioStage)}`
         );
       }
       if (selection.type === "road") {
         return request<RoadDetail>(
-          `${baseUrl}/api/v1/map/roads/${selection.id}`
+          `${baseUrl}/api/v1/map/roads/${selection.id}${stageParam(stage, includeScenarioStage)}`
         );
       }
       if (selection.type === "sensor") {
         return request<SensorDetail>(
-          `${baseUrl}/api/v1/map/sensors/${selection.id}`
+          `${baseUrl}/api/v1/map/sensors/${selection.id}${stageParam(stage, includeScenarioStage)}`
         );
+      }
+      if (selection.type === "source_health") {
+        const snapshot = await request<MapIntelligenceResponse>(
+          `${baseUrl}/api/v1/map/intelligence${stageParam(stage, includeScenarioStage)}`
+        );
+        return {
+          type: "source_health",
+          id: selection.id,
+          snapshot_id: snapshot.snapshot_id,
+          generated_at: snapshot.generated_at,
+          mode: snapshot.mode,
+          sources: snapshot.source_health,
+          events: snapshot.events,
+          model_metadata: snapshot.model_metadata
+        } satisfies SourceHealthDetail;
       }
       return Promise.reject(
         new Error(
@@ -51,13 +85,23 @@ export function createHttpClient(baseUrl: string): PravahaApi {
         )
       ) as Promise<IntelligenceDetail>;
     },
-    getAlerts: () => request<Alert[]>(`${baseUrl}/api/v1/map/alerts`),
-    planSafeRoute: (payload) =>
-      request<SafeRouteResponse>(`${baseUrl}/api/v1/routes/safe`, {
+    getAlerts: (stage) =>
+      request<Alert[]>(
+        `${baseUrl}/api/v1/map/alerts${stageParam(stage, includeScenarioStage)}`
+      ),
+    getEvents: (stage) =>
+      request<StructuredEvent[]>(
+        `${baseUrl}/api/v1/events${stageParam(stage, includeScenarioStage)}`
+      ),
+    planSafeRoute: (payload, stage) =>
+      request<SafeRouteResponse>(
+        `${baseUrl}/api/v1/routes/safe${stageParam(stage, includeScenarioStage)}`,
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
-      })
+        }
+      )
   } satisfies PravahaApi;
 }
 
@@ -67,4 +111,14 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(`Backend request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+function stageParam(
+  stage: string | undefined,
+  includeScenarioStage: boolean
+) {
+  if (!includeScenarioStage || !stage) {
+    return "";
+  }
+  return `?scenario_stage=${encodeURIComponent(stage)}`;
 }

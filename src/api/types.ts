@@ -14,6 +14,7 @@ export type EntityType =
   | "drain"
   | "road"
   | "sensor"
+  | "source_health"
   | "landslide"
   | "route"
   | "shelter";
@@ -26,6 +27,7 @@ export interface SourceMetadata {
   sources: string[];
   static_verification_status?: string;
   capacity_verification_status?: string;
+  road_verification_status?: string;
   provider?: string;
 }
 
@@ -83,10 +85,45 @@ export interface CityStatus {
 }
 
 export interface SourceHealth {
-  label: string;
-  status: Freshness | "ONLINE" | "DEGRADED" | "OFFLINE";
-  age_minutes?: number;
+  source_id: string;
+  name: string;
+  category: string;
+  status: "HEALTHY" | "DEGRADED" | "UNAVAILABLE" | "STATIC" | "SIMULATED";
+  last_success_at?: string | null;
+  last_observation_at?: string | null;
+  age_seconds?: number | null;
+  expected_interval_seconds?: number | null;
+  freshness: Freshness;
   provenance: DataLabel;
+  message?: string | null;
+}
+
+export interface StructuredEvent {
+  event_id: string;
+  snapshot_id: string;
+  generated_at: string;
+  event_type: string;
+  severity: RiskLevel;
+  entity_type: EntityType;
+  entity_id: string;
+  title: string;
+  message: string;
+  reasons: string[];
+  provenance: SourceMetadata;
+}
+
+export interface ModelMetadata {
+  prediction_id: string;
+  model_version: string;
+  generated_at: string;
+  input_state_time: string;
+  risk_score: number;
+  risk_level: RiskLevel;
+  confidence: number;
+  data_quality_score: number;
+  runtime_status: "DEVELOPMENT_FALLBACK" | "TRAINED_ARTIFACT" | "UNAVAILABLE";
+  operationally_validated: boolean;
+  top_factors: string[];
 }
 
 export interface MapSummary {
@@ -107,11 +144,16 @@ export interface MapSummary {
 export interface MapIntelligenceResponse {
   snapshot_id: string;
   generated_at: string;
+  state_time: string;
+  scenario_id: string;
   mode: "DEMO" | "OPERATIONAL";
   data_label: DataLabel;
   city: CityStatus;
   layers: MapLayers;
   summary: MapSummary;
+  source_health: SourceHealth[];
+  events: StructuredEvent[];
+  model_metadata: ModelMetadata;
 }
 
 export interface DataMetric {
@@ -384,6 +426,17 @@ export interface LocationInspection {
   data_quality: DataMetric[];
 }
 
+export interface SourceHealthDetail {
+  type: "source_health";
+  id: string;
+  snapshot_id: string;
+  generated_at: string;
+  mode: "DEMO" | "OPERATIONAL";
+  sources: SourceHealth[];
+  events: StructuredEvent[];
+  model_metadata: ModelMetadata;
+}
+
 export interface Alert {
   alert_id: string;
   alert_type: string;
@@ -476,6 +529,7 @@ export type IntelligenceDetail =
   | DrainDetail
   | RoadDetail
   | SensorDetail
+  | SourceHealthDetail
   | WardDetail
   | LandslideDetail
   | RouteDetail
@@ -483,18 +537,19 @@ export type IntelligenceDetail =
   | LocationInspection;
 
 export interface PravahaApi {
-  getMapIntelligence(stage: ScenarioStage): Promise<MapIntelligenceResponse>;
-  getCatchmentDetail(id: string, stage: ScenarioStage): Promise<CatchmentDetail>;
-  getDrainDetail(id: string, stage: ScenarioStage): Promise<DrainDetail>;
-  getRoadDetail(id: string, stage: ScenarioStage): Promise<RoadDetail>;
-  getSensorDetail(id: string, stage: ScenarioStage): Promise<SensorDetail>;
+  getMapIntelligence(stage?: ScenarioStage): Promise<MapIntelligenceResponse>;
+  getCatchmentDetail(id: string, stage?: ScenarioStage): Promise<CatchmentDetail>;
+  getDrainDetail(id: string, stage?: ScenarioStage): Promise<DrainDetail>;
+  getRoadDetail(id: string, stage?: ScenarioStage): Promise<RoadDetail>;
+  getSensorDetail(id: string, stage?: ScenarioStage): Promise<SensorDetail>;
   getEntityDetail(
     selection: SelectedEntity,
-    stage: ScenarioStage
+    stage?: ScenarioStage
   ): Promise<IntelligenceDetail>;
-  getAlerts(stage: ScenarioStage): Promise<Alert[]>;
+  getAlerts(stage?: ScenarioStage): Promise<Alert[]>;
+  getEvents(stage?: ScenarioStage): Promise<StructuredEvent[]>;
   planSafeRoute(
     request: SafeRouteRequest,
-    stage: ScenarioStage
+    stage?: ScenarioStage
   ): Promise<SafeRouteResponse>;
 }

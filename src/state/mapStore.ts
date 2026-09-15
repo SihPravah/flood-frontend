@@ -24,6 +24,8 @@ export type BasemapKey = "osm" | "muted" | "contrast";
 
 interface MapState {
   scenario: ScenarioStage;
+  demoPlaying: boolean;
+  demoSpeed: 1 | 2 | 4;
   selectedEntity: SelectedEntity | null;
   hoverCoordinates: [number, number] | null;
   clickedCoordinates: [number, number] | null;
@@ -35,6 +37,10 @@ interface MapState {
   legendOpen: boolean;
   basemap: BasemapKey;
   setScenario: (scenario: ScenarioStage) => void;
+  setDemoPlaying: (playing: boolean) => void;
+  setDemoSpeed: (speed: 1 | 2 | 4) => void;
+  stepScenario: () => void;
+  resetScenario: () => void;
   selectEntity: (
     type: EntityType,
     id: string,
@@ -66,6 +72,8 @@ export const defaultEnabledLayers: Record<LayerKey, boolean> = {
   routes: true
 };
 
+const scenarioOrder: ScenarioStage[] = ["NORMAL", "WATCH", "WARNING", "SEVERE"];
+
 const defaultLayerOpacity: Record<LayerKey, number> = {
   catchments: 0.52,
   wards: 0.78,
@@ -82,6 +90,8 @@ const defaultLayerOpacity: Record<LayerKey, number> = {
 
 export const useMapStore = create<MapState>((set) => ({
   scenario: "WARNING",
+  demoPlaying: false,
+  demoSpeed: 1,
   selectedEntity: {
     type: "catchment",
     id: "UK-CHM-DEHRADUN-01"
@@ -96,6 +106,18 @@ export const useMapStore = create<MapState>((set) => ({
   enabledLayers: defaultEnabledLayers,
   layerOpacity: defaultLayerOpacity,
   setScenario: (scenario) => set({ scenario }),
+  setDemoPlaying: (playing) => set({ demoPlaying: playing }),
+  setDemoSpeed: (speed) => set({ demoSpeed: speed }),
+  stepScenario: () =>
+    set((state) => {
+      const index = scenarioOrder.indexOf(state.scenario);
+      const nextScenario = scenarioOrder[Math.min(index + 1, scenarioOrder.length - 1)];
+      return {
+        scenario: nextScenario,
+        demoPlaying: nextScenario === "SEVERE" ? false : state.demoPlaying
+      };
+    }),
+  resetScenario: () => set({ scenario: "NORMAL", demoPlaying: false }),
   selectEntity: (type, id, coordinates) =>
     set({
       selectedEntity: { type, id, coordinates },

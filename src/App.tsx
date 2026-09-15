@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -17,18 +25,28 @@ import {
   Mountain,
   PanelLeftClose,
   PanelLeftOpen,
+  Pause,
+  Play,
+  RefreshCw,
+  RotateCcw,
   Route,
   Search,
   ShieldAlert,
+  StepForward,
   Waves
 } from "lucide-react";
 
-import { pravahaApi } from "./api/provider";
+import {
+  pravahaApi,
+  pravahaDataMode,
+  pravahaRefreshIntervalMs
+} from "./api/provider";
 import type {
   Alert,
   CatchmentDetail,
   DataMetric,
   DrainDetail,
+  EntityType,
   IntelligenceDetail,
   LandslideDetail,
   LocationInspection,
@@ -36,11 +54,14 @@ import type {
   ProvenanceRow,
   RainfallWindowMetric,
   RoadDetail,
+  RoutePoint,
   RouteDetail,
   SafeRouteResponse,
   ScenarioStage,
   SensorDetail,
   ShelterDetail,
+  SourceHealthDetail,
+  StructuredEvent,
   WardDetail
 } from "./api/types";
 import { MapView } from "./components/MapView";
@@ -57,6 +78,19 @@ const AnticipationChart = lazy(() =>
 );
 
 const scenarioStages: ScenarioStage[] = ["NORMAL", "WATCH", "WARNING", "SEVERE"];
+const noSafeDestinationId = "DEMO-NO-SAFE-ROUTE";
+const defaultRouteOrigin: RoutePoint = {
+  lon: 78.03,
+  lat: 30.32,
+  label: "Clock Tower side",
+  place_id: "ORIGIN-DEMO-CLOCK-TOWER"
+};
+const defaultRouteDestination: RoutePoint = {
+  lon: 78.056,
+  lat: 30.338,
+  label: "School shelter",
+  place_id: "SHELTER-SCHOOL-01"
+};
 
 const layerGroups: Array<{
   label: string;
@@ -99,8 +133,16 @@ const layerGroups: Array<{
 
 export function App() {
   const scenario = useMapStore((state) => state.scenario);
+  const demoPlaying = useMapStore((state) => state.demoPlaying);
+  const demoSpeed = useMapStore((state) => state.demoSpeed);
+  const stepScenario = useMapStore((state) => state.stepScenario);
   const selectedEntity = useMapStore((state) => state.selectedEntity);
   const setLeftRailCollapsed = useMapStore((state) => state.setLeftRailCollapsed);
+  const [routeOrigin, setRouteOrigin] = useState<RoutePoint>(defaultRouteOrigin);
+  const [routeDestination, setRouteDestination] = useState<RoutePoint>(
+    defaultRouteDestination
+  );
+  const plannedScenarioRef = useRef<ScenarioStage | null>(null);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") {
@@ -119,16 +161,28 @@ export function App() {
 
   const mapQuery = useQuery({
     queryKey: ["map-intelligence", scenario],
-    queryFn: () => pravahaApi.getMapIntelligence(scenario)
+    queryFn: () => pravahaApi.getMapIntelligence(scenario),
+    refetchInterval:
+      pravahaDataMode === "api" ? pravahaRefreshIntervalMs : false
   });
 
   const alertsQuery = useQuery({
     queryKey: ["alerts", scenario],
-    queryFn: () => pravahaApi.getAlerts(scenario)
+    queryFn: () => pravahaApi.getAlerts(scenario),
+    refetchInterval:
+      pravahaDataMode === "api" ? pravahaRefreshIntervalMs : false
   });
 
+  const eventsQuery = useQuery({
+    queryKey: ["events", scenario],
+    queryFn: () => pravahaApi.getEvents(scenario),
+    refetchInterval:
+      pravahaDataMode === "api" ? pravahaRefreshIntervalMs : false
+  });
+  const snapshot = mapQuery.data;
+
   const detailQuery = useQuery({
-    queryKey: ["detail", selectedEntity, scenario],
+    queryKey: ["detail", selectedEntity, scenario, snapshot?.snapshot_id],
     enabled: selectedEntity !== null,
     queryFn: () => pravahaApi.getEntityDetail(selectedEntity!, scenario)
   });
@@ -140,40 +194,75 @@ export function App() {
           origin: {
             lon: 78.03,
             lat: 30.32,
-            label: "Clock Tower side"
+            ...routeOrigin
           },
           destination: {
             lon: 78.056,
             lat: 30.338,
-            label: "School shelter",
-            place_id: "SHELTER-01"
+            ...routeDestination
           },
           strategy: useMapStore.getState().routeStrategy
         },
         scenario
       )
   });
+  const routeData = routeMutation.data;
+  const routePending = routeMutation.isPending;
+  const routeError = routeMutation.error;
+  const mutateRoute = routeMutation.mutate;
 
-  const snapshot = mapQuery.data;
   const alerts = alertsQuery.data ?? [];
+  const events = eventsQuery.data ?? snapshot?.events ?? [];
+
+  useEffect(() => {
+    if (!demoPlaying || pravahaDataMode === "api") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      stepScenario();
+    }, 2600 / demoSpeed);
+    return () => window.clearInterval(timer);
+  }, [demoPlaying, demoSpeed, stepScenario]);
+
+  useEffect(() => {
+    if (!routeData) {
+      return;
+    }
+    if (plannedScenarioRef.current === scenario) {
+      return;
+    }
+    plannedScenarioRef.current = scenario;
+    mutateRoute();
+  }, [mutateRoute, routeData, scenario]);
+
+  const planRoute = () => {
+    plannedScenarioRef.current = scenario;
+    mutateRoute();
+  };
 
   return (
     <main className="app-shell">
       <TopOperationalBar
         snapshot={snapshot}
-        alerts={alerts}
-        loading={mapQuery.isLoading}
-      />
+          alerts={alerts}
+          dataMode={pravahaDataMode}
+          loading={mapQuery.isLoading}
+        />
 
       <section className="command-center" aria-label="PRAVAHA GIS command center">
         <OperationalRail
           loading={mapQuery.isLoading}
           snapshot={snapshot}
           alerts={alerts}
-          route={routeMutation.data}
-          routePending={routeMutation.isPending}
-          routeError={routeMutation.error}
-          onPlanRoute={() => routeMutation.mutate()}
+          events={events}
+          route={routeData}
+          routePending={routePending}
+          routeError={routeError}
+          routeOrigin={routeOrigin}
+          routeDestination={routeDestination}
+          onRouteOriginChange={setRouteOrigin}
+          onRouteDestinationChange={setRouteDestination}
+          onPlanRoute={planRoute}
         />
 
         <MapWorkspace
@@ -190,9 +279,9 @@ export function App() {
 
         <BottomIntelligenceStrip
           snapshot={snapshot}
-          route={routeMutation.data}
-          routePending={routeMutation.isPending}
-          onPlanRoute={() => routeMutation.mutate()}
+          route={routeData}
+          routePending={routePending}
+          onPlanRoute={planRoute}
         />
       </section>
     </main>
@@ -202,17 +291,20 @@ export function App() {
 function TopOperationalBar({
   snapshot,
   alerts,
+  dataMode,
   loading
 }: {
   snapshot?: MapIntelligenceResponse;
   alerts: Alert[];
+  dataMode: "api" | "mock";
   loading: boolean;
 }) {
   const selectedEntity = useMapStore((state) => state.selectedEntity);
+  const selectEntity = useMapStore((state) => state.selectEntity);
   const healthySources =
-    snapshot?.summary.source_health.filter((source) => source.status === "GOOD")
+    snapshot?.source_health.filter((source) => source.status !== "UNAVAILABLE")
       .length ?? 0;
-  const sourceCount = snapshot?.summary.source_health.length ?? 0;
+  const sourceCount = snapshot?.source_health.length ?? 0;
 
   return (
     <header className="topbar">
@@ -226,11 +318,7 @@ function TopOperationalBar({
         </div>
       </div>
 
-      <label className="search" aria-label="Search place or asset">
-        <Search aria-hidden="true" />
-        <input placeholder="Search ward, road, drain, sensor, shelter" />
-        <kbd>GIS</kbd>
-      </label>
+      <SearchBox snapshot={snapshot} />
 
       <div className="selected-context">
         <span className="eyebrow">Selection</span>
@@ -249,18 +337,21 @@ function TopOperationalBar({
         />
         <StatusPill
           label="Freshness"
-          value={snapshot ? "2m" : "--"}
-          tone="GOOD"
+          value={snapshot ? freshnessLabel(snapshot.source_health) : "--"}
+          tone={snapshot ? worstFreshness(snapshot.source_health) : "GOOD"}
         />
         <StatusPill
           label="Sources"
           value={snapshot ? `${healthySources}/${sourceCount}` : "--"}
           tone={healthySources === sourceCount ? "GOOD" : "DEGRADED"}
+          onClick={() => selectEntity("source_health", "source-health")}
         />
       </div>
 
       <div className="top-actions">
-        <span className="badge simulated">SIMULATED DEMO</span>
+        <span className="badge simulated">
+          {dataMode === "api" ? snapshot?.mode ?? "API" : "SIMULATED DEMO"}
+        </span>
         <span className="snapshot-time">
           <Clock3 aria-hidden="true" />
           {snapshot ? time(snapshot.generated_at) : "--:--"}
@@ -274,27 +365,232 @@ function TopOperationalBar({
   );
 }
 
+interface SearchResult {
+  type: EntityType;
+  id: string;
+  label: string;
+  subtitle: string;
+  coordinates?: [number, number];
+}
+
+function SearchBox({ snapshot }: { snapshot?: MapIntelligenceResponse }) {
+  const selectEntity = useMapStore((state) => state.selectEntity);
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const index = useMemo(() => buildSearchIndex(snapshot), [snapshot]);
+  const coordinateResult = useMemo(() => parseCoordinateSearch(query), [query]);
+  const results = useMemo(() => {
+    if (coordinateResult) {
+      return [coordinateResult];
+    }
+    const needle = query.trim().toLowerCase();
+    if (!needle) {
+      return index.slice(0, 6);
+    }
+    return index
+      .filter((item) =>
+        `${item.type} ${item.id} ${item.label} ${item.subtitle}`
+          .toLowerCase()
+          .includes(needle)
+      )
+      .slice(0, 8);
+  }, [coordinateResult, index, query]);
+
+  const choose = (result: SearchResult) => {
+    selectEntity(result.type, result.id, result.coordinates);
+    setQuery(result.label);
+    setOpen(false);
+  };
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, results.length]);
+
+  return (
+    <div className="search-shell">
+      <label className="search" aria-label="Search place or asset">
+        <Search aria-hidden="true" />
+        <input
+          placeholder="Search ward, road, drain, sensor, shelter"
+          value={query}
+          onFocus={() => setOpen(true)}
+          onChange={(event) => {
+            setQuery(event.currentTarget.value);
+            setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setOpen(true);
+              setActiveIndex((index) =>
+                Math.min(index + 1, Math.max(results.length - 1, 0))
+              );
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setOpen(true);
+              setActiveIndex((index) => Math.max(index - 1, 0));
+            }
+            if (event.key === "Enter" && results[activeIndex]) {
+              event.preventDefault();
+              choose(results[activeIndex]);
+            }
+            if (event.key === "Escape") {
+              setOpen(false);
+            }
+          }}
+        />
+        <kbd>GIS</kbd>
+      </label>
+      {open && results.length > 0 && (
+        <div className="search-results" role="listbox">
+          {results.map((result) => (
+            <button
+              key={`${result.type}-${result.id}`}
+              type="button"
+              className={`search-option ${
+                activeIndex === results.indexOf(result) ? "active" : ""
+              }`}
+              role="option"
+              aria-selected={activeIndex === results.indexOf(result)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose(result)}
+            >
+              <strong>{result.label}</strong>
+              <span>{result.type.toUpperCase()} / {result.subtitle}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function buildSearchIndex(snapshot?: MapIntelligenceResponse): SearchResult[] {
+  if (!snapshot) {
+    return [];
+  }
+
+  const results: SearchResult[] = [];
+  Object.values(snapshot.layers).forEach((collection) => {
+    collection.features.forEach((feature) => {
+      const properties = feature.properties ?? {};
+      const type = String(properties.entityType ?? entityTypeFromId(String(feature.id ?? "")));
+      if (!isEntityType(type)) {
+        return;
+      }
+      const id = String(properties.id ?? feature.id ?? "");
+      if (!id) {
+        return;
+      }
+      results.push({
+        type,
+        id,
+        label: String(properties.name ?? id),
+        subtitle: id,
+        coordinates: featureCenter(feature.geometry.coordinates)
+      });
+    });
+  });
+
+  snapshot.source_health.forEach((source) => {
+    results.push({
+      type: "source_health",
+      id: "source-health",
+      label: source.name,
+      subtitle: `${source.status} / ${source.provenance}`
+    });
+  });
+
+  return results;
+}
+
+function parseCoordinateSearch(value: string): SearchResult | null {
+  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) {
+    return null;
+  }
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) {
+    return null;
+  }
+  const lat = Math.abs(first) <= 90 ? first : second;
+  const lon = Math.abs(first) <= 90 ? second : first;
+  return {
+    type: "location",
+    id: "searched-coordinate",
+    label: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+    subtitle: "Coordinate inspection",
+    coordinates: [lon, lat]
+  };
+}
+
+function featureCenter(value: unknown): [number, number] | undefined {
+  const coordinates: Array<[number, number]> = [];
+  collectFeatureCoordinates(value, coordinates);
+  if (coordinates.length === 0) {
+    return undefined;
+  }
+  const totals = coordinates.reduce(
+    (sum, coordinate) => [sum[0] + coordinate[0], sum[1] + coordinate[1]],
+    [0, 0]
+  );
+  return [totals[0] / coordinates.length, totals[1] / coordinates.length];
+}
+
+function collectFeatureCoordinates(
+  value: unknown,
+  coordinates: Array<[number, number]>
+) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  if (typeof value[0] === "number" && typeof value[1] === "number") {
+    coordinates.push([value[0], value[1]]);
+    return;
+  }
+  value.forEach((child) => collectFeatureCoordinates(child, coordinates));
+}
+
 function OperationalRail({
   loading,
   snapshot,
   alerts,
+  events,
   route,
   routePending,
   routeError,
+  routeOrigin,
+  routeDestination,
+  onRouteOriginChange,
+  onRouteDestinationChange,
   onPlanRoute
 }: {
   loading: boolean;
   snapshot?: MapIntelligenceResponse;
   alerts: Alert[];
+  events: StructuredEvent[];
   route?: SafeRouteResponse;
   routePending: boolean;
   routeError: Error | null;
+  routeOrigin: RoutePoint;
+  routeDestination: RoutePoint;
+  onRouteOriginChange: (point: RoutePoint) => void;
+  onRouteDestinationChange: (point: RoutePoint) => void;
   onPlanRoute: () => void;
 }) {
   const collapsed = useMapStore((state) => state.leftRailCollapsed);
   const toggleLeftRail = useMapStore((state) => state.toggleLeftRail);
   const scenario = useMapStore((state) => state.scenario);
   const setScenario = useMapStore((state) => state.setScenario);
+  const demoPlaying = useMapStore((state) => state.demoPlaying);
+  const demoSpeed = useMapStore((state) => state.demoSpeed);
+  const setDemoPlaying = useMapStore((state) => state.setDemoPlaying);
+  const setDemoSpeed = useMapStore((state) => state.setDemoSpeed);
+  const stepScenario = useMapStore((state) => state.stepScenario);
+  const resetScenario = useMapStore((state) => state.resetScenario);
   const selectEntity = useMapStore((state) => state.selectEntity);
 
   return (
@@ -345,7 +641,48 @@ function OperationalRail({
           <section className="rail-section scenario-block">
             <div className="section-title">
               <DatabaseZap aria-hidden="true" />
-              <span>Scenario</span>
+              <span>Demo controls</span>
+            </div>
+            <div className="demo-actions" aria-label="Demo playback">
+              <button
+                className="tool-button"
+                type="button"
+                onClick={() => setDemoPlaying(!demoPlaying)}
+                aria-label={demoPlaying ? "Pause demo" : "Play demo"}
+              >
+                {demoPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+                <span>{demoPlaying ? "Pause" : "Play"}</span>
+              </button>
+              <button
+                className="tool-button"
+                type="button"
+                onClick={stepScenario}
+                aria-label="Step Forward"
+              >
+                <StepForward aria-hidden="true" />
+                <span>Step</span>
+              </button>
+              <button
+                className="tool-button"
+                type="button"
+                onClick={resetScenario}
+                aria-label="Reset demo"
+              >
+                <RotateCcw aria-hidden="true" />
+                <span>Reset</span>
+              </button>
+            </div>
+            <div className="speed-control" aria-label="Demo speed">
+              {([1, 2, 4] as const).map((speed) => (
+                <button
+                  key={speed}
+                  className={demoSpeed === speed ? "active" : ""}
+                  onClick={() => setDemoSpeed(speed)}
+                  type="button"
+                >
+                  {speed}x
+                </button>
+              ))}
             </div>
             <div className="scenario-control" aria-label="Demo scenario">
               {scenarioStages.map((stage) => (
@@ -385,8 +722,45 @@ function OperationalRail({
               route={route}
               routePending={routePending}
               routeError={routeError}
+              routeOrigin={routeOrigin}
+              routeDestination={routeDestination}
+              onRouteOriginChange={onRouteOriginChange}
+              onRouteDestinationChange={onRouteDestinationChange}
               onPlanRoute={onPlanRoute}
             />
+          </section>
+
+          <section className="rail-section source-health-block">
+            <div className="section-title">
+              <RefreshCw aria-hidden="true" />
+              <span>Source health</span>
+            </div>
+            <SourceHealthRows sources={snapshot?.source_health ?? []} />
+          </section>
+
+          <section className="rail-section event-feed" aria-label="Event feed">
+            <div className="section-title">
+              <BadgeAlert aria-hidden="true" />
+              <span>Event feed</span>
+            </div>
+            {events.length === 0 ? (
+              <p className="muted">No structured events for this stage.</p>
+            ) : (
+              events.map((event) => (
+                <button
+                  key={event.event_id}
+                  className="event-row"
+                  type="button"
+                  onClick={() =>
+                    selectEntity(event.entity_type, event.entity_id)
+                  }
+                >
+                  <strong>{event.severity}</strong>
+                  <span>{event.title}</span>
+                  <small>{event.message}</small>
+                </button>
+              ))
+            )}
           </section>
 
           <section className="rail-section alert-list" aria-label="Alert center">
@@ -647,6 +1021,7 @@ function detailMatchesSelection(detail: IntelligenceDetail, type: string, id: st
   if (detail.type === "drain") return detail.drain_id === id;
   if (detail.type === "road") return detail.road_id === id;
   if (detail.type === "sensor") return detail.device_id === id;
+  if (detail.type === "source_health") return detail.id === id;
   if (detail.type === "ward") return detail.ward_id === id;
   if (detail.type === "landslide") return detail.zone_id === id;
   if (detail.type === "route") return detail.route_id === id;
@@ -666,6 +1041,9 @@ function DetailContent({ detail }: { detail: IntelligenceDetail }) {
   }
   if (detail.type === "sensor") {
     return <SensorContent detail={detail} />;
+  }
+  if (detail.type === "source_health") {
+    return <SourceHealthContent detail={detail} />;
   }
   if (detail.type === "ward") {
     return <WardContent detail={detail} />;
@@ -885,6 +1263,57 @@ function SensorContent({ detail }: { detail: SensorDetail }) {
   );
 }
 
+function SourceHealthContent({ detail }: { detail: SourceHealthDetail }) {
+  return (
+    <div className="detail-stack">
+      <DetailSection title="Source Health">
+        <div className="source-health-list expanded">
+          {detail.sources.map((source) => (
+            <div key={source.source_id} className="source-row">
+              <span>
+                <strong>{source.name}</strong>
+                <small>{source.source_id}</small>
+                {source.message && <small>{source.message}</small>}
+              </span>
+              <em className={toneClass(source.freshness)}>
+                {source.status} / {source.provenance}
+              </em>
+            </div>
+          ))}
+        </div>
+      </DetailSection>
+      <DetailSection title="Model Metadata">
+        <MetricGrid
+          metrics={[
+            metric("Prediction", detail.model_metadata.prediction_id, undefined, "DERIVED"),
+            metric("Version", detail.model_metadata.model_version, undefined, "DERIVED"),
+            metric("Runtime", detail.model_metadata.runtime_status, undefined, "DERIVED"),
+            metric(
+              "Operational validation",
+              detail.model_metadata.operationally_validated ? "Yes" : "No",
+              undefined,
+              detail.model_metadata.operationally_validated ? "OBSERVED" : "SIMULATED"
+            ),
+            metric("Input state", detail.model_metadata.input_state_time, undefined, "DERIVED"),
+            metric("Data quality", percentValue(detail.model_metadata.data_quality_score), undefined, "DEGRADED")
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Structured Events">
+        <div className="event-feed compact">
+          {detail.events.map((event) => (
+            <div key={event.event_id} className="event-row">
+              <strong>{event.severity}</strong>
+              <span>{event.title}</span>
+              <small>{event.message}</small>
+            </div>
+          ))}
+        </div>
+      </DetailSection>
+    </div>
+  );
+}
+
 function WardContent({ detail }: { detail: WardDetail }) {
   return (
     <div className="detail-stack">
@@ -1030,6 +1459,10 @@ function BottomIntelligenceStrip({
   onPlanRoute: () => void;
 }) {
   const scenario = useMapStore((state) => state.scenario);
+  const currentStageLabel =
+    pravahaDataMode === "api" && snapshot
+      ? snapshot.model_metadata.risk_level
+      : scenario;
   const routeStrategy = useMapStore((state) => state.routeStrategy);
   const setRouteStrategy = useMapStore((state) => state.setRouteStrategy);
 
@@ -1039,12 +1472,15 @@ function BottomIntelligenceStrip({
         <div className="strip-heading">
           <Mountain aria-hidden="true" />
           <span>Anticipatory timeline</span>
-          <em>{scenario}</em>
+          <em>{currentStageLabel}</em>
         </div>
         <div className="timeline-cells">
-          {snapshot?.city.reasons.map((reason) => (
-            <span key={reason}>{titleize(reason)}</span>
-          ))}
+          {snapshot?.events.slice(0, 4).map((event) => (
+            <span key={event.event_id}>
+              {event.title}
+              <em>{event.severity}</em>
+            </span>
+          )) ?? <span>Waiting for scenario state</span>}
         </div>
       </section>
 
@@ -1074,21 +1510,126 @@ function RoutePlanner({
   route,
   routePending,
   routeError,
+  routeOrigin,
+  routeDestination,
+  onRouteOriginChange,
+  onRouteDestinationChange,
   onPlanRoute
 }: {
   route?: SafeRouteResponse;
   routePending: boolean;
   routeError: Error | null;
+  routeOrigin: RoutePoint;
+  routeDestination: RoutePoint;
+  onRouteOriginChange: (point: RoutePoint) => void;
+  onRouteDestinationChange: (point: RoutePoint) => void;
   onPlanRoute: () => void;
 }) {
   const routeStrategy = useMapStore((state) => state.routeStrategy);
   const setRouteStrategy = useMapStore((state) => state.setRouteStrategy);
+  const selectedEntity = useMapStore((state) => state.selectedEntity);
+  const selectedPoint = selectedEntity?.coordinates
+    ? {
+        lon: selectedEntity.coordinates[0],
+        lat: selectedEntity.coordinates[1],
+        label: `${selectedEntity.type.toUpperCase()} / ${selectedEntity.id}`,
+        place_id: selectedEntity.id
+      }
+    : null;
 
   return (
     <div className="route-planner-body">
       <div className="route-fields">
-        <span>FROM <strong>Clock Tower side</strong></span>
-        <span>TO <strong>School shelter</strong></span>
+        <label>
+          <span>FROM</span>
+          <input
+            aria-label="Route origin"
+            value={routeOrigin.label ?? ""}
+            onChange={(event) =>
+              onRouteOriginChange(resolveRoutePoint(event.currentTarget.value, "origin"))
+            }
+            list="pravaha-route-places"
+          />
+        </label>
+        <label>
+          <span>TO</span>
+          <input
+            aria-label="Route destination"
+            value={routeDestination.label ?? ""}
+            onChange={(event) =>
+              onRouteDestinationChange(
+                resolveRoutePoint(event.currentTarget.value, "destination")
+              )
+            }
+            list="pravaha-route-places"
+          />
+        </label>
+        <datalist id="pravaha-route-places">
+          <option value="Clock Tower side" />
+          <option value="School shelter" />
+          <option value="Isolated hillside hamlet" />
+          <option value="30.331, 78.042" />
+        </datalist>
+      </div>
+      <div className="route-actions" aria-label="Route point actions">
+        <button
+          type="button"
+          onClick={() => {
+            onRouteOriginChange({
+              lon: routeDestination.lon,
+              lat: routeDestination.lat,
+              label: routeDestination.label,
+              place_id: routeDestination.place_id
+            });
+            onRouteDestinationChange({
+              lon: routeOrigin.lon,
+              lat: routeOrigin.lat,
+              label: routeOrigin.label,
+              place_id: routeOrigin.place_id
+            });
+          }}
+        >
+          Swap
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            onRouteOriginChange(defaultRouteOrigin);
+            onRouteDestinationChange(defaultRouteDestination);
+          }}
+        >
+          Clear
+        </button>
+        <button
+          type="button"
+          disabled={!selectedPoint}
+          onClick={() => selectedPoint && onRouteOriginChange(selectedPoint)}
+        >
+          Use selected FROM
+        </button>
+        <button
+          type="button"
+          disabled={!selectedPoint}
+          onClick={() => selectedPoint && onRouteDestinationChange(selectedPoint)}
+        >
+          Use selected TO
+        </button>
+        <button
+          type="button"
+          onClick={() => onRouteDestinationChange(defaultRouteDestination)}
+        >
+          Shelter
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onRouteDestinationChange(
+              resolveRoutePoint("Isolated hillside hamlet", "destination")
+            )
+          }
+        >
+          Isolated
+        </button>
       </div>
       <div className="strategy-row" aria-label="Route strategy">
         {(["safest", "balanced", "fastest_available"] as const).map((strategy) => (
@@ -1289,19 +1830,70 @@ function SignalRows({ rows }: { rows: Array<[string, string | number]> }) {
   );
 }
 
+function SourceHealthRows({
+  sources
+}: {
+  sources: MapIntelligenceResponse["source_health"];
+}) {
+  const selectEntity = useMapStore((state) => state.selectEntity);
+
+  if (sources.length === 0) {
+    return <p className="muted">Source health is not available yet.</p>;
+  }
+
+  return (
+    <div className="source-health-list">
+      {sources.map((source) => (
+        <button
+          key={source.source_id}
+          className="source-row"
+          type="button"
+          onClick={() => selectEntity("source_health", "source-health")}
+        >
+          <span>
+            <strong>{source.name}</strong>
+            <small>{source.message ?? source.source_id}</small>
+          </span>
+          <em className={toneClass(source.freshness)}>
+            {source.status} / {source.provenance}
+          </em>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function StatusPill({
   label,
   value,
-  tone
+  tone,
+  onClick
 }: {
   label: string;
   value: string;
   tone: string;
+  onClick?: () => void;
 }) {
-  return (
-    <span className={`status-pill ${toneClass(tone)}`}>
+  const content = (
+    <>
       <em>{label}</em>
       <strong>{value}</strong>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button
+        className={`status-pill ${toneClass(tone)}`}
+        onClick={onClick}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <span className={`status-pill ${toneClass(tone)}`}>
+      {content}
     </span>
   );
 }
@@ -1357,6 +1949,9 @@ function detailTitle(detail: IntelligenceDetail) {
   if (detail.type === "sensor") {
     return detail.device_id;
   }
+  if (detail.type === "source_health") {
+    return "Source health";
+  }
   if (detail.type === "ward") {
     return detail.name;
   }
@@ -1376,7 +1971,7 @@ function entityTypeFromId(id: string) {
   if (id.startsWith("UK-CHM")) {
     return "catchment" as const;
   }
-  if (id.startsWith("DRAIN")) {
+  if (id.startsWith("D-") || id.startsWith("DRAIN")) {
     return "drain" as const;
   }
   if (id.startsWith("ROAD")) {
@@ -1385,7 +1980,31 @@ function entityTypeFromId(id: string) {
   if (id.startsWith("WARD")) {
     return "ward" as const;
   }
+  if (id.startsWith("SENSOR")) {
+    return "sensor" as const;
+  }
+  if (id.startsWith("SHELTER")) {
+    return "shelter" as const;
+  }
+  if (id.startsWith("LANDSLIDE")) {
+    return "landslide" as const;
+  }
   return "catchment" as const;
+}
+
+function isEntityType(value: string): value is EntityType {
+  return [
+    "location",
+    "catchment",
+    "ward",
+    "drain",
+    "road",
+    "sensor",
+    "source_health",
+    "landslide",
+    "route",
+    "shelter"
+  ].includes(value);
 }
 
 function unitFor(label: string) {
@@ -1419,6 +2038,61 @@ function display(value: string | number | null | undefined) {
 
 function listOrNone(values: string[]) {
   return values.length > 0 ? values.join(", ") : "None in demo horizon";
+}
+
+function resolveRoutePoint(value: string, role: "origin" | "destination"): RoutePoint {
+  const trimmed = value.trim();
+  const coordinate = parseCoordinateSearch(trimmed);
+  if (coordinate?.coordinates) {
+    return {
+      lon: coordinate.coordinates[0],
+      lat: coordinate.coordinates[1],
+      label: coordinate.label,
+      place_id: `${role.toUpperCase()}-COORDINATE`
+    };
+  }
+
+  if (role === "destination" && /isolated|hill/i.test(trimmed)) {
+    return {
+      lon: 78.055,
+      lat: 30.342,
+      label: trimmed || "Isolated hillside hamlet",
+      place_id: noSafeDestinationId
+    };
+  }
+
+  if (role === "destination") {
+    return {
+      ...defaultRouteDestination,
+      label: trimmed || defaultRouteDestination.label
+    };
+  }
+
+  return {
+    ...defaultRouteOrigin,
+    label: trimmed || defaultRouteOrigin.label
+  };
+}
+
+function freshnessLabel(sources: MapIntelligenceResponse["source_health"]) {
+  const observedAges = sources
+    .map((source) => source.age_seconds)
+    .filter((value): value is number => typeof value === "number");
+  if (observedAges.length === 0) {
+    return "static";
+  }
+  const minutes = Math.round(Math.min(...observedAges) / 60);
+  return `${minutes}m`;
+}
+
+function worstFreshness(sources: MapIntelligenceResponse["source_health"]) {
+  if (sources.some((source) => source.freshness === "UNUSABLE")) {
+    return "UNUSABLE";
+  }
+  if (sources.some((source) => source.freshness === "DEGRADED")) {
+    return "DEGRADED";
+  }
+  return "GOOD";
 }
 
 function percent(value: number) {

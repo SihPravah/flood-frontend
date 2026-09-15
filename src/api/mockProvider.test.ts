@@ -9,9 +9,11 @@ describe("mockProvider", () => {
 
     expect(first).toEqual(second);
     expect(first.data_label).toBe("SIMULATED");
-    expect(first.summary.source_health.some((source) => source.provenance === "SIMULATED")).toBe(
+    expect(first.scenario_id).toBe("DEMO-001");
+    expect(first.source_health.some((source) => source.provenance === "SIMULATED")).toBe(
       true
     );
+    expect(first.model_metadata.operationally_validated).toBe(false);
   });
 
   it("shows deterioration across the demo scenario", async () => {
@@ -36,7 +38,11 @@ describe("mockProvider", () => {
     const result = await mockProvider.planSafeRoute(
       {
         origin: { lon: 78.03, lat: 30.32 },
-        destination: { lon: 78.056, lat: 30.338 },
+        destination: {
+          lon: 78.055,
+          lat: 30.342,
+          place_id: "DEMO-NO-SAFE-ROUTE"
+        },
         strategy: "fastest_available"
       },
       "SEVERE"
@@ -55,11 +61,11 @@ describe("mockProvider", () => {
 
   it("supports richer click-anything entity details", async () => {
     const ward = await mockProvider.getEntityDetail(
-      { type: "ward", id: "WARD-07" },
+      { type: "ward", id: "WARD-DEHRADUN-07" },
       "WARNING"
     );
     const landslide = await mockProvider.getEntityDetail(
-      { type: "landslide", id: "SLOPE-01" },
+      { type: "landslide", id: "LANDSLIDE-ZONE-S-01" },
       "SEVERE"
     );
     const location = await mockProvider.getEntityDetail(
@@ -77,7 +83,7 @@ describe("mockProvider", () => {
 
   it("keeps missing sensor values explicit", async () => {
     const sensor = await mockProvider.getEntityDetail(
-      { type: "sensor", id: "SIM_NODE_08" },
+      { type: "sensor", id: "SENSOR-SIM-RAIN-SOIL-02" },
       "SEVERE"
     );
 
@@ -87,5 +93,20 @@ describe("mockProvider", () => {
       expect(sensor.measurements.rainfall_mm_per_hr).toBeNull();
       expect(sensor.missing_fields).toContain("soil_moisture_percentage");
     }
+  });
+
+  it("returns source health and structured events behind the same API", async () => {
+    const detail = await mockProvider.getEntityDetail(
+      { type: "source_health", id: "source-health" },
+      "SEVERE"
+    );
+    const events = await mockProvider.getEvents("WARNING");
+
+    expect(detail.type).toBe("source_health");
+    if (detail.type === "source_health") {
+      expect(detail.sources.some((source) => source.status === "UNAVAILABLE")).toBe(true);
+      expect(detail.model_metadata.runtime_status).toBe("DEVELOPMENT_FALLBACK");
+    }
+    expect(events.some((event) => event.event_type === "road_status_change")).toBe(true);
   });
 });

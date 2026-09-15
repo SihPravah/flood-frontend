@@ -173,7 +173,7 @@ export function MapView({ snapshot }: { snapshot: MapIntelligenceResponse }) {
       return;
     }
     updateSelection(map, selectedEntity);
-    if (selectedEntity?.type === "location" && selectedEntity.coordinates) {
+    if (selectedEntity?.coordinates) {
       map.easeTo({
         center: selectedEntity.coordinates,
         duration: 420
@@ -669,7 +669,7 @@ function updateSelection(
     }
   });
 
-  if (selected.type === "road" && selected.id === "ROAD-CLOSED") {
+  if (selected.type === "road" && selected.id === "ROAD-BRIDGE-APPROACH") {
     ["selected-closure-line"].forEach((layerId) => {
       if (map.getLayer(layerId)) {
         map.setFilter(layerId, filter);

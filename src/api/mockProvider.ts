@@ -16,27 +16,41 @@ import type {
   RiskLevel,
   RoadDetail,
   RoadRecommendation,
+  RouteAlternative,
   RouteDetail,
+  RouteSegment,
   SafeRouteRequest,
   SafeRouteResponse,
   ScenarioStage,
   SelectedEntity,
   SensorDetail,
   ShelterDetail,
+  SourceHealth,
+  SourceHealthDetail,
   SourceMetadata,
+  StructuredEvent,
   TimelinePoint,
   WardDetail
 } from "./types";
 
 const generatedAt = "2026-09-09T08:45:00.000Z";
+const scenarioId = "DEMO-001";
+const cityId = "UK-DEHRADUN";
 const catchmentId = "UK-CHM-DEHRADUN-01";
-const wardId = "WARD-07";
-const drainId = "DRAIN-17";
-const roadFastId = "ROAD-FAST";
-const roadBypassId = "ROAD-BYPASS";
-const routeId = "ROUTE-SAFE-DEMO";
-const shelterId = "SHELTER-01";
-const sensorId = "SIM_NODE_04";
+const wardId = "WARD-DEHRADUN-07";
+const villageId = "VILLAGE-CHANDRABANI";
+const drainId = "D-22";
+const roadFastId = "ROAD-SHELTER-CORRIDOR";
+const roadBypassId = "ROAD-HIGHER-GROUND-BYPASS";
+const roadClosedId = "ROAD-BRIDGE-APPROACH";
+const roadHillId = "ROAD-HILLSIDE-LINK";
+const routeId = "ROUTE-DEMO-001";
+const shelterId = "SHELTER-SCHOOL-01";
+const sensorId = "SENSOR-SIM-RAIN-SOIL-01";
+const sensorSecondaryId = "SENSOR-SIM-RAIN-SOIL-02";
+const streamId = "STREAM-DEMO-001";
+const landslideZoneId = "LANDSLIDE-ZONE-S-01";
+const noSafeDestinationId = "DEMO-NO-SAFE-ROUTE";
 
 interface StageProfile {
   cityStatus: CityStatus["operational_status"];
@@ -137,9 +151,9 @@ const stages: Record<ScenarioStage, StageProfile> = {
     latestThresholdCrossing: "+30 min HIGH",
     reasons: ["rainfall_increasing", "soil_saturation_high", "downstream_drain_over_capacity"],
     timeline: [
-      point("NOW", 0.64, "WARNING", 0.74, "RISING", "118%", "AVOID", "WARNING", "Drain D-17 over capacity"),
+      point("NOW", 0.64, "WARNING", 0.74, "RISING", "118%", "AVOID", "WARNING", "Drain D-22 over capacity"),
       point("+15 min", 0.7, "HIGH", 0.72, "RISING", "124%", "AVOID", "WARNING", "Runoff continues rising"),
-      point("+30 min", 0.76, "HIGH", 0.7, "RISING", "131%", "AVOID", "WARNING", "Road ROAD-FAST remains AVOID"),
+      point("+30 min", 0.76, "HIGH", 0.7, "RISING", "131%", "AVOID", "WARNING", "Road ROAD-SHELTER-CORRIDOR remains AVOID"),
       point("+60 min", 0.84, "HIGH", 0.66, "RISING", "143%", "AVOID", "EMERGENCY", "Possible corridor degradation")
     ]
   },
@@ -175,15 +189,17 @@ const stages: Record<ScenarioStage, StageProfile> = {
 export const scenarioStages = Object.keys(stages) as ScenarioStage[];
 
 export const mockProvider: PravahaApi = {
-  async getMapIntelligence(stage) {
+  async getMapIntelligence(stage = "WARNING") {
     const profile = stages[stage];
     return {
       snapshot_id: snapshotId(stage),
       generated_at: generatedAt,
+      state_time: generatedAt,
+      scenario_id: scenarioId,
       mode: "DEMO",
       data_label: "SIMULATED",
       city: {
-        city_id: "UK-DEHRADUN",
+        city_id: cityId,
         name: "Dehradun",
         district: "Dehradun district demo sector",
         operational_status: profile.cityStatus,
@@ -205,27 +221,30 @@ export const mockProvider: PravahaApi = {
         exposed_population: profile.exposedPopulation,
         source_health: sourceHealth(stage),
         latest_threshold_crossing: profile.latestThresholdCrossing
-      }
+      },
+      source_health: sourceHealth(stage),
+      events: events(stage),
+      model_metadata: modelMetadata(stage)
     };
   },
 
-  async getCatchmentDetail(id, stage) {
+  async getCatchmentDetail(id, stage = "WARNING") {
     return catchmentDetail(id, stage);
   },
 
-  async getDrainDetail(id, stage) {
+  async getDrainDetail(id, stage = "WARNING") {
     return drainDetail(id, stage);
   },
 
-  async getRoadDetail(id, stage) {
+  async getRoadDetail(id, stage = "WARNING") {
     return roadDetail(id, stage);
   },
 
-  async getSensorDetail(id, stage) {
+  async getSensorDetail(id, stage = "WARNING") {
     return sensorDetail(id, stage);
   },
 
-  async getEntityDetail(selection, stage) {
+  async getEntityDetail(selection, stage = "WARNING") {
     if (selection.type === "catchment") {
       return catchmentDetail(selection.id, stage);
     }
@@ -237,6 +256,9 @@ export const mockProvider: PravahaApi = {
     }
     if (selection.type === "sensor") {
       return sensorDetail(selection.id, stage);
+    }
+    if (selection.type === "source_health") {
+      return sourceHealthDetail(selection.id, stage);
     }
     if (selection.type === "ward") {
       return wardDetail(selection.id, stage);
@@ -253,7 +275,7 @@ export const mockProvider: PravahaApi = {
     return locationInspection(selection, stage);
   },
 
-  async getAlerts(stage) {
+  async getAlerts(stage = "WARNING") {
     if (stage === "NORMAL") {
       return [];
     }
@@ -269,7 +291,7 @@ export const mockProvider: PravahaApi = {
         message: `${profile.alertLevel} demo flood intelligence for Ward 7 corridor.`,
         recommended_review:
           stage === "WATCH"
-            ? "Review drain D-17 and prepare route monitoring."
+            ? "Review drain D-22 and prepare route monitoring."
             : "Inspect AVOID roads and drainage overload before dispatch.",
         affected_entity_ids: [catchmentId, drainId, roadFastId],
         reasons: profile.reasons,
@@ -286,10 +308,10 @@ export const mockProvider: PravahaApi = {
         risk_level: profile.riskLevel,
         severity: profile.riskLevel,
         confidence: profile.confidence,
-        location: "Drain D-17",
-        message: "D-17 exceeds effective capacity in the deterministic demo scenario.",
+        location: "Drain D-22",
+        message: "D-22 exceeds effective capacity in the deterministic demo scenario.",
         recommended_review:
-          "Review roads influenced by D-17 before approving evacuation movement.",
+          "Review roads influenced by D-22 before approving evacuation movement.",
         affected_entity_ids: [drainId, roadFastId],
         reasons: ["estimated_inflow_exceeds_effective_capacity"],
         provenance: simulated([catchmentId, sensorId], {
@@ -303,12 +325,17 @@ export const mockProvider: PravahaApi = {
     return alerts;
   },
 
-  async planSafeRoute(request: SafeRouteRequest, stage: ScenarioStage) {
-    const profile = stages[stage];
-    const blocked =
-      stage === "SEVERE" && request.strategy === "fastest_available";
+  async getEvents(stage = "WARNING") {
+    return events(stage);
+  },
 
-    if (blocked) {
+  async planSafeRoute(
+    request: SafeRouteRequest,
+    stage: ScenarioStage = "WARNING"
+  ) {
+    const result = evaluateRouteGraph(request, stage);
+
+    if (!result.route) {
       return {
         status: "NO_SAFE_ROUTE",
         snapshot_id: snapshotId(stage),
@@ -316,64 +343,18 @@ export const mockProvider: PravahaApi = {
         reason_code: "NO_ROUTABLE_PATH",
         message:
           "No reliable route is available under current demo hazard constraints.",
-        blocked_by: [
-          segment(roadFastId, "AVOID", 0.91, "SEVERE"),
-          segment("ROAD-CLOSED", "CLOSED", 0.95, "SEVERE"),
-          segment("ROAD-HILL", "AVOID", 0.82, "HIGH")
-        ],
+        blocked_by: result.blocked,
         provenance: simulated([sensorId, drainId]),
         safety_note:
           "PRAVAHA is decision support and does not guarantee route safety."
       };
     }
 
-    const route =
-      profile.roadRecommendation === "AVOID"
-        ? {
-            route_id: "ROUTE-BYPASS",
-            label: "Bypass via higher ground",
-            geometry: lineGeometry(stage),
-            travel_time_minutes: 18,
-            distance_km: 6.4,
-            maximum_risk_score: 0.38,
-            minimum_confidence: 0.71,
-            unsafe_segments_avoided: 2,
-            closures_avoided: stage === "SEVERE" ? 1 : 0,
-            segments: [segment(roadBypassId, "CAUTION", 0.38, "WATCH")]
-          }
-        : {
-            route_id: "ROUTE-DIRECT",
-            label: "Direct monitored corridor",
-            geometry: lineGeometry(stage),
-            travel_time_minutes: 11,
-            distance_km: 4.8,
-            maximum_risk_score: profile.riskScore,
-            minimum_confidence: profile.confidence,
-            unsafe_segments_avoided: 0,
-            closures_avoided: 0,
-            segments: [
-              segment(
-                roadFastId,
-                profile.roadRecommendation,
-                profile.riskScore,
-                profile.riskLevel
-              )
-            ]
-          };
-
     const selected_route = {
-      ...route,
+      ...result.route,
       strategy: request.strategy,
-      additional_time_vs_fastest_minutes:
-        route.route_id === "ROUTE-BYPASS" ? 7 : 0,
-      explanation:
-        route.route_id === "ROUTE-BYPASS"
-          ? [
-              "Avoids model AVOID segment near drain D-17",
-              "Keeps route on higher-confidence road corridor",
-              "Does not treat AVOID as authority CLOSED"
-            ]
-          : ["Direct route is currently monitored and passable in demo state"]
+      additional_time_vs_fastest_minutes: result.additionalTime,
+      explanation: result.explanation
     };
 
     return {
@@ -445,14 +426,14 @@ function buildLayers(
         freshness: "GOOD",
         rainfall_mm_per_hr: profile.rainfallIntensity
       }),
-      feature("sensor", "SIM_NODE_08", "Point", [78.049, 30.337], {
+      feature("sensor", sensorSecondaryId, "Point", [78.049, 30.337], {
         status: stage === "SEVERE" ? "MISSING" : "SIMULATED",
         freshness: stage === "SEVERE" ? "UNUSABLE" : "DEGRADED",
         rainfall_mm_per_hr: stage === "SEVERE" ? null : profile.rainfallIntensity * 0.8
       })
     ]),
     rivers: collection([
-      feature("river", "STREAM-01", "LineString", [
+      feature("river", streamId, "LineString", [
         [78.026, 30.317],
         [78.043, 30.329],
         [78.061, 30.343]
@@ -464,16 +445,16 @@ function buildLayers(
         [78.038, 30.328],
         [78.047, 30.336]
       ], {
-        name: "D-17 downstream collector",
+        name: "D-22 downstream collector",
         risk_level: profile.drainUtilization >= 1 ? "HIGH" : "WATCH",
         utilization: profile.drainUtilization
       }),
-      feature("drain", "DRAIN-22", "LineString", [
+      feature("drain", "D-23", "LineString", [
         [78.052, 30.321],
         [78.048, 30.330],
         [78.045, 30.341]
       ], {
-        name: "D-22 hillside chute",
+        name: "D-23 hillside chute",
         risk_level: stage === "SEVERE" ? "WARNING" : "WATCH",
         utilization: Math.min(profile.drainUtilization * 0.78, 1.12)
       })
@@ -497,7 +478,7 @@ function buildLayers(
         recommendation: stage === "NORMAL" ? "PASSABLE" : "CAUTION",
         risk_level: stage === "NORMAL" ? "LOW" : "WATCH"
       }),
-      feature("road", "ROAD-HILL", "LineString", [
+      feature("road", roadHillId, "LineString", [
         [78.045, 30.330],
         [78.055, 30.342]
       ], {
@@ -507,7 +488,7 @@ function buildLayers(
       })
     ]),
     landslide: collection([
-      feature("landslide", "SLOPE-01", "Polygon", [
+      feature("landslide", landslideZoneId, "Polygon", [
         [
           [78.044, 30.330],
           [78.057, 30.330],
@@ -526,7 +507,7 @@ function buildLayers(
     closures: collection(
       stage === "SEVERE"
         ? [
-            feature("road", "ROAD-CLOSED", "LineString", [
+            feature("road", roadClosedId, "LineString", [
               [78.036, 30.324],
               [78.042, 30.331]
             ], {
@@ -576,7 +557,7 @@ function catchmentDetail(id: string, stage: ScenarioStage): CatchmentDetail {
           ? "Fast response, drainage demand exceeds estimated capacity"
           : "Response within monitored reserve",
       drainage_demand:
-        profile.drainUtilization >= 1 ? "Exceeds D-17 capacity" : "Within D-17 reserve"
+        profile.drainUtilization >= 1 ? "Exceeds D-22 capacity" : "Within D-22 reserve"
     },
     rainfall: {
       intensity_mm_per_hr: profile.rainfallIntensity,
@@ -646,18 +627,18 @@ function catchmentDetail(id: string, stage: ScenarioStage): CatchmentDetail {
         state: profile.overflow > 0 ? "PREDICTED" : "POSSIBLE",
         detail:
           profile.overflow > 0
-            ? `D-17 overflow ${profile.overflow} m3/s`
+            ? `D-22 overflow ${profile.overflow} m3/s`
             : "No overflow in this scenario"
       },
       {
         label: "Road flooding",
         state: profile.roadRecommendation === "AVOID" ? "PREDICTED" : "POSSIBLE",
-        detail: `ROAD-FAST is ${profile.roadRecommendation}`
+        detail: `${roadFastId} is ${profile.roadRecommendation}`
       }
     ],
     impact: {
       affected_wards: [wardId],
-      exposed_roads: [roadFastId, "ROAD-HILL"],
+      exposed_roads: [roadFastId, roadHillId],
       threatened_shelters: stage === "SEVERE" ? [shelterId] : [],
       exposed_population: profile.exposedPopulation,
       evacuation_readiness:
@@ -674,7 +655,7 @@ function drainDetail(id: string, stage: ScenarioStage): DrainDetail {
   return {
     type: "drain",
     drain_id: id,
-    name: id === drainId ? "D-17 downstream collector" : "D-22 hillside chute",
+    name: id === drainId ? "D-22 downstream collector" : "D-23 hillside chute",
     drain_type: "open lined municipal drain",
     snapshot_id: snapshotId(stage),
     risk_score: Math.min(profile.drainUtilization / 1.6, 1),
@@ -688,8 +669,8 @@ function drainDetail(id: string, stage: ScenarioStage): DrainDetail {
       capacity_verification_status: "ESTIMATED"
     }),
     last_updated: generatedAt,
-    upstream_nodes: ["D-17-U1", "D-17-U2"],
-    downstream_node: "D-17-OUT",
+    upstream_nodes: ["D-22-U1", "D-22-U2"],
+    downstream_node: "D-22-OUT",
     inflow_m3_per_s: Number((profile.drainUtilization * 2.6).toFixed(2)),
     capacity_m3_per_s: 2.6,
     capacity_utilization: profile.drainUtilization,
@@ -700,7 +681,7 @@ function drainDetail(id: string, stage: ScenarioStage): DrainDetail {
     condition_factor: 0.82,
     affected_roads: [roadFastId],
     contributing_catchments: [catchmentId],
-    nearby_settlements: ["Ward 7 demo sector"],
+    nearby_settlements: [villageId, "Ward 7 demo sector"],
     timeline: profile.timeline,
     provenance_table: provenanceRows(profile).filter((row) =>
       ["rainfall", "runoff", "drain capacity"].includes(row.variable)
@@ -711,7 +692,7 @@ function drainDetail(id: string, stage: ScenarioStage): DrainDetail {
 function roadDetail(id: string, stage: ScenarioStage): RoadDetail {
   const profile = stages[stage];
   const isBypass = id === roadBypassId;
-  const isClosure = id === "ROAD-CLOSED";
+  const isClosure = id === roadClosedId;
   const recommendation = isClosure
     ? "CLOSED"
     : isBypass
@@ -785,7 +766,7 @@ function roadDetail(id: string, stage: ScenarioStage): RoadDetail {
 
 function sensorDetail(id: string, stage: ScenarioStage): SensorDetail {
   const profile = stages[stage];
-  const missing = id === "SIM_NODE_08" && stage === "SEVERE";
+  const missing = id === sensorSecondaryId && stage === "SEVERE";
   return {
     type: "sensor",
     device_id: id,
@@ -823,7 +804,7 @@ function wardDetail(id: string, stage: ScenarioStage): WardDetail {
     snapshot_id: snapshotId(stage),
     population: null,
     catchments_intersecting: [catchmentId],
-    roads_threatened: profile.roadRecommendation === "AVOID" ? [roadFastId, "ROAD-HILL"] : [roadFastId],
+    roads_threatened: profile.roadRecommendation === "AVOID" ? [roadFastId, roadHillId] : [roadFastId],
     shelters: [shelterId],
     evacuation_readiness:
       profile.roadRecommendation === "AVOID"
@@ -853,7 +834,7 @@ function landslideDetail(id: string, stage: ScenarioStage): LandslideDetail {
     rainfall_contribution:
       profile.rainfallIntensity > 40 ? "Current rainfall is a major driver" : "Rainfall monitored",
     historical_inventory: "Demo fixture references historical inventory relationship as ESTIMATED",
-    affected_assets: ["ROAD-HILL", drainId, "STREAM-01"],
+    affected_assets: [roadHillId, drainId, streamId],
     cascade_impact: [
       "Slope material could affect Hill road segment",
       "Blocked roadside drainage may increase local waterlogging"
@@ -882,7 +863,7 @@ function routeDetail(id: string, stage: ScenarioStage): RouteDetail {
     crossings: 1,
     explanation: bypass
       ? [
-          "Avoids ROAD-FAST because it is model AVOID",
+          `Avoids ${roadFastId} because it is model AVOID`,
           "Bypasses drainage-overload corridor",
           "Adds time but improves minimum confidence"
         ]
@@ -925,7 +906,7 @@ function locationInspection(
     ward_or_village: wardId,
     catchment_id: catchmentId,
     nearest_road: roadFastId,
-    nearest_stream: "STREAM-01",
+    nearest_stream: streamId,
     nearest_drain: drainId,
     nearest_shelter: shelterId,
     terrain: [
@@ -957,32 +938,192 @@ function locationInspection(
   };
 }
 
-function sourceHealth(stage: ScenarioStage) {
+function sourceHealth(stage: ScenarioStage): SourceHealth[] {
   return [
     {
-      label: "Rainfall",
-      status: "GOOD" as const,
-      age_minutes: 2,
-      provenance: "SIMULATED" as const
+      source_id: sensorId,
+      name: "Rainfall / soil demo sensor",
+      category: "sensor",
+      status: "SIMULATED",
+      last_success_at: generatedAt,
+      last_observation_at: generatedAt,
+      age_seconds: 120,
+      expected_interval_seconds: 900,
+      freshness: "GOOD",
+      provenance: "SIMULATED",
+      message: "Deterministic DEMO-001 sensor fixture"
     },
     {
-      label: "Soil",
-      status: stage === "SEVERE" ? "DEGRADED" as const : "GOOD" as const,
-      age_minutes: stage === "SEVERE" ? 11 : 3,
-      provenance: "SIMULATED" as const
+      source_id: sensorSecondaryId,
+      name: "Secondary ridge sensor",
+      category: "sensor",
+      status: stage === "SEVERE" ? "UNAVAILABLE" : "SIMULATED",
+      last_success_at: generatedAt,
+      last_observation_at: stage === "SEVERE" ? null : generatedAt,
+      age_seconds: stage === "SEVERE" ? 4440 : 180,
+      expected_interval_seconds: 900,
+      freshness: stage === "SEVERE" ? "UNUSABLE" : "DEGRADED",
+      provenance: stage === "SEVERE" ? "MISSING" : "SIMULATED",
+      message:
+        stage === "SEVERE"
+          ? "Missing in severe scenario; values remain null instead of zero"
+          : "Deterministic secondary demo sensor"
     },
     {
-      label: "DEM / GIS",
-      status: "DEGRADED" as const,
-      provenance: "ESTIMATED" as const
+      source_id: "GIS-DEMO-CATCHMENTS",
+      name: "Configurable demo GIS mapping",
+      category: "static_gis",
+      status: "STATIC",
+      last_success_at: null,
+      last_observation_at: null,
+      age_seconds: null,
+      expected_interval_seconds: null,
+      freshness: "DEGRADED",
+      provenance: "ESTIMATED",
+      message: "Static demo mapping; not municipal verification"
     },
     {
-      label: "Forecast",
-      status: "DEGRADED" as const,
-      age_minutes: 0,
-      provenance: "SIMULATED" as const
+      source_id: "ML-DEVELOPMENT-FALLBACK",
+      name: "ML development inference spine",
+      category: "model",
+      status: "DEGRADED",
+      last_success_at: generatedAt,
+      last_observation_at: null,
+      age_seconds: 60,
+      expected_interval_seconds: 900,
+      freshness: "DEGRADED",
+      provenance: "DERIVED",
+      message: "Development fallback; not operationally validated"
     }
   ];
+}
+
+function sourceHealthDetail(id: string, stage: ScenarioStage): SourceHealthDetail {
+  return {
+    type: "source_health",
+    id,
+    snapshot_id: snapshotId(stage),
+    generated_at: generatedAt,
+    mode: "DEMO",
+    sources: sourceHealth(stage),
+    events: events(stage),
+    model_metadata: modelMetadata(stage)
+  };
+}
+
+function events(stage: ScenarioStage): StructuredEvent[] {
+  if (stage === "NORMAL") {
+    return [
+      event(
+        stage,
+        "state_observed",
+        "LOW",
+        "catchment",
+        catchmentId,
+        "Normal monitoring state",
+        "Rainfall, soil saturation, and drainage utilization remain within the demo monitoring band.",
+        ["rainfall_light", "drain_capacity_available"]
+      )
+    ];
+  }
+
+  const profile = stages[stage];
+  const result = [
+    event(
+      stage,
+      "risk_escalation",
+      profile.riskLevel,
+      "catchment",
+      catchmentId,
+      `${profile.riskLevel} catchment risk`,
+      `Fused DEMO-001 observations drive ${profile.riskLevel} flood intelligence for Chandrabani.`,
+      profile.reasons
+    )
+  ];
+
+  if (profile.overflow > 0) {
+    result.push(
+      event(
+        stage,
+        "drainage_overload",
+        profile.riskLevel,
+        "drain",
+        drainId,
+        "Drain overload predicted",
+        "Estimated inflow exceeds D-22 capacity in the deterministic demo scenario.",
+        ["estimated_inflow_exceeds_effective_capacity", "upstream_runoff_rising"]
+      ),
+      event(
+        stage,
+        "road_status_change",
+        profile.riskLevel,
+        "road",
+        roadFastId,
+        "Road marked AVOID by model",
+        "The shelter corridor is model-derived AVOID, not authority CLOSED.",
+        ["nearby_drain_over_capacity", "avoid_not_closed"]
+      )
+    );
+  }
+
+  if (stage === "SEVERE") {
+    result.push(
+      event(
+        stage,
+        "authority_closure",
+        "SEVERE",
+        "road",
+        roadClosedId,
+        "Authority closure active",
+        "Bridge approach is explicitly CLOSED by authority-confirmed demo fixture.",
+        ["authority_confirmed_closure"]
+      )
+    );
+  }
+
+  return result;
+}
+
+function event(
+  stage: ScenarioStage,
+  event_type: string,
+  severity: RiskLevel,
+  entity_type: StructuredEvent["entity_type"],
+  entity_id: string,
+  title: string,
+  message: string,
+  reasons: string[]
+): StructuredEvent {
+  return {
+    event_id: `EVENT-${stage}-${event_type}-${entity_id}`,
+    snapshot_id: snapshotId(stage),
+    generated_at: generatedAt,
+    event_type,
+    severity,
+    entity_type,
+    entity_id,
+    title,
+    message,
+    reasons,
+    provenance: simulated([sensorId, drainId])
+  };
+}
+
+function modelMetadata(stage: ScenarioStage) {
+  const profile = stages[stage];
+  return {
+    prediction_id: `PRED-${catchmentId}-${stage}`,
+    model_version: "pravaha-frontend-demo-adapter-v1",
+    generated_at: generatedAt,
+    input_state_time: generatedAt,
+    risk_score: profile.riskScore,
+    risk_level: profile.riskLevel,
+    confidence: profile.confidence,
+    data_quality_score: stage === "SEVERE" ? 0.62 : 0.78,
+    runtime_status: "DEVELOPMENT_FALLBACK" as const,
+    operationally_validated: false,
+    top_factors: profile.reasons
+  };
 }
 
 function rainfallWindows(profile: StageProfile): RainfallWindowMetric[] {
@@ -1125,6 +1266,245 @@ function simulated(
   };
 }
 
+interface DemoEdge {
+  start: string;
+  end: string;
+  road_id: string;
+  label: string;
+  recommendation: RoadRecommendation;
+  risk_score: number;
+  risk_level: RiskLevel;
+  confidence: number;
+  travel_time_minutes: number;
+  distance_km: number;
+  coordinates: [number, number][];
+}
+
+function evaluateRouteGraph(
+  request: SafeRouteRequest,
+  stage: ScenarioStage
+): {
+  route: Omit<RouteAlternative, "strategy" | "additional_time_vs_fastest_minutes" | "explanation"> | null;
+  blocked: RouteSegment[];
+  additionalTime: number;
+  explanation: string[];
+} {
+  const target =
+    request.destination.place_id === noSafeDestinationId ? "isolated" : "shelter";
+  const edges = routeEdges(stage);
+  const blocked = edges
+    .filter((edge) => edge.recommendation === "CLOSED" || edge.recommendation === "AVOID")
+    .map((edge) =>
+      segment(edge.road_id, edge.recommendation, edge.risk_score, edge.risk_level)
+    );
+  const traversable = edges.filter((edge) => {
+    if (edge.recommendation === "CLOSED") {
+      return false;
+    }
+    if (edge.recommendation === "AVOID" && !request.allow_avoid_segments) {
+      return false;
+    }
+    return true;
+  });
+  const routeEdgesFound = shortestPath(traversable, "origin", target, request.strategy);
+
+  if (!routeEdgesFound) {
+    return {
+      route: null,
+      blocked,
+      additionalTime: 0,
+      explanation: []
+    };
+  }
+
+  const coordinates = routeEdgesFound.flatMap((edge, index) =>
+    index === 0 ? edge.coordinates : edge.coordinates.slice(1)
+  );
+  const travelTime = routeEdgesFound.reduce(
+    (total, edge) => total + edge.travel_time_minutes,
+    0
+  );
+  const distance = Number(
+    routeEdgesFound.reduce((total, edge) => total + edge.distance_km, 0).toFixed(1)
+  );
+  const maximumRisk = Math.max(...routeEdgesFound.map((edge) => edge.risk_score));
+  const minimumConfidence = Math.min(...routeEdgesFound.map((edge) => edge.confidence));
+  const fastest = shortestPath(
+    edges.filter((edge) => edge.recommendation !== "CLOSED"),
+    "origin",
+    target,
+    "fastest_available"
+  );
+  const fastestTime = fastest
+    ? fastest.reduce((total, edge) => total + edge.travel_time_minutes, 0)
+    : travelTime;
+  const usesBypass = routeEdgesFound.some((edge) => edge.road_id === roadBypassId);
+
+  return {
+    route: {
+      route_id: usesBypass ? "ROUTE-BYPASS" : "ROUTE-DIRECT",
+      label: usesBypass ? "Bypass via higher ground" : "Direct monitored corridor",
+      travel_time_minutes: travelTime,
+      distance_km: distance,
+      maximum_risk_score: Number(maximumRisk.toFixed(2)),
+      minimum_confidence: Number(minimumConfidence.toFixed(2)),
+      unsafe_segments_avoided: blocked.filter((item) => item.recommendation === "AVOID").length,
+      closures_avoided: blocked.filter((item) => item.recommendation === "CLOSED").length,
+      geometry: {
+        type: "LineString",
+        coordinates
+      },
+      segments: routeEdgesFound.map((edge) =>
+        segment(edge.road_id, edge.recommendation, edge.risk_score, edge.risk_level)
+      )
+    },
+    blocked,
+    additionalTime: Math.max(travelTime - fastestTime, 0),
+    explanation: usesBypass
+      ? [
+          `Avoids ${roadFastId} because it is model AVOID`,
+          "Uses higher-ground corridor with stronger minimum confidence",
+          "Does not treat AVOID as authority CLOSED"
+        ]
+      : ["Direct route remains eligible in this demo scenario"]
+  };
+}
+
+function routeEdges(stage: ScenarioStage): DemoEdge[] {
+  const profile = stages[stage];
+  const directRecommendation = profile.roadRecommendation;
+  const directRisk =
+    directRecommendation === "AVOID" ? Math.min(profile.riskScore + 0.12, 1) : profile.riskScore;
+  const bridgeRecommendation: RoadRecommendation = stage === "SEVERE" ? "CLOSED" : "CAUTION";
+  const hillRecommendation: RoadRecommendation = stage === "SEVERE" ? "AVOID" : "CAUTION";
+
+  return [
+    {
+      start: "origin",
+      end: "shelter",
+      road_id: roadFastId,
+      label: "Clock Tower shelter corridor",
+      recommendation: directRecommendation,
+      risk_score: Number(directRisk.toFixed(2)),
+      risk_level: directRecommendation === "AVOID" ? "HIGH" : profile.riskLevel,
+      confidence: profile.confidence,
+      travel_time_minutes: 11,
+      distance_km: 4.8,
+      coordinates: [
+        [78.030, 30.320],
+        [78.039, 30.329],
+        [78.052, 30.335]
+      ]
+    },
+    {
+      start: "origin",
+      end: "ridge",
+      road_id: roadBypassId,
+      label: "Higher-ground bypass west",
+      recommendation: stage === "NORMAL" ? "PASSABLE" : "CAUTION",
+      risk_score: stage === "NORMAL" ? 0.18 : 0.34,
+      risk_level: stage === "NORMAL" ? "LOW" : "WATCH",
+      confidence: 0.78,
+      travel_time_minutes: 9,
+      distance_km: 3.1,
+      coordinates: [
+        [78.029, 30.319],
+        [78.041, 30.326]
+      ]
+    },
+    {
+      start: "ridge",
+      end: "shelter",
+      road_id: roadBypassId,
+      label: "Higher-ground bypass east",
+      recommendation: stage === "NORMAL" ? "PASSABLE" : "CAUTION",
+      risk_score: stage === "NORMAL" ? 0.2 : 0.38,
+      risk_level: stage === "NORMAL" ? "LOW" : "WATCH",
+      confidence: 0.71,
+      travel_time_minutes: 9,
+      distance_km: 3.3,
+      coordinates: [
+        [78.041, 30.326],
+        [78.056, 30.338]
+      ]
+    },
+    {
+      start: "origin",
+      end: "bridge",
+      road_id: roadClosedId,
+      label: "Bridge approach",
+      recommendation: bridgeRecommendation,
+      risk_score: stage === "SEVERE" ? 0.95 : 0.42,
+      risk_level: stage === "SEVERE" ? "SEVERE" : "WATCH",
+      confidence: 0.92,
+      travel_time_minutes: 5,
+      distance_km: 1.5,
+      coordinates: [
+        [78.036, 30.324],
+        [78.042, 30.331]
+      ]
+    },
+    {
+      start: "bridge",
+      end: "isolated",
+      road_id: roadHillId,
+      label: "Hillside link",
+      recommendation: hillRecommendation,
+      risk_score: stage === "SEVERE" ? 0.82 : 0.46,
+      risk_level: stage === "SEVERE" ? "HIGH" : "WATCH",
+      confidence: 0.66,
+      travel_time_minutes: 8,
+      distance_km: 2.1,
+      coordinates: [
+        [78.042, 30.331],
+        [78.055, 30.342]
+      ]
+    }
+  ];
+}
+
+function shortestPath(
+  edges: DemoEdge[],
+  start: string,
+  target: string,
+  strategy: SafeRouteRequest["strategy"]
+) {
+  const queue = [{ node: start, cost: 0, path: [] as DemoEdge[] }];
+  const best = new Map<string, number>([[start, 0]]);
+
+  while (queue.length > 0) {
+    queue.sort((left, right) => left.cost - right.cost);
+    const current = queue.shift()!;
+    if (current.node === target) {
+      return current.path;
+    }
+    for (const edge of edges.filter((item) => item.start === current.node)) {
+      const cost = current.cost + edgeWeight(edge, strategy);
+      if (cost >= (best.get(edge.end) ?? Number.POSITIVE_INFINITY)) {
+        continue;
+      }
+      best.set(edge.end, cost);
+      queue.push({
+        node: edge.end,
+        cost,
+        path: [...current.path, edge]
+      });
+    }
+  }
+
+  return null;
+}
+
+function edgeWeight(edge: DemoEdge, strategy: SafeRouteRequest["strategy"]) {
+  if (strategy === "fastest_available") {
+    return edge.travel_time_minutes + edge.risk_score * 2;
+  }
+  if (strategy === "balanced") {
+    return edge.travel_time_minutes + edge.risk_score * 12 + (1 - edge.confidence) * 8;
+  }
+  return edge.travel_time_minutes + edge.risk_score * 22 + (1 - edge.confidence) * 10;
+}
+
 function collection(features: FeatureCollection["features"]): FeatureCollection {
   return {
     type: "FeatureCollection",
@@ -1152,13 +1532,6 @@ function feature(
       data_label: "SIMULATED",
       ...properties
     }
-  };
-}
-
-function lineGeometry(stage: ScenarioStage) {
-  return {
-    type: "LineString" as const,
-    coordinates: routeCoordinates(stage)
   };
 }
 
