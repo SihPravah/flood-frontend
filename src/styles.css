@@ -774,8 +774,14 @@ kbd {
 }
 
 .map .maplibregl-control-container {
-  position: relative;
+  position: static;
   z-index: 1;
+}
+
+.map .maplibregl-ctrl-bottom-right {
+  top: 58px;
+  right: 10px;
+  bottom: auto;
 }
 
 .map .maplibregl-ctrl-top-left {
